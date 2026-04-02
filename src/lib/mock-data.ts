@@ -288,7 +288,7 @@ export const mockTasks: MockTask[] = [
 ]
 
 export const mockBrief = {
-  title: 'Morning Cyber Brief',
+  title: 'Cyber Brief Unified Platform',
   volume: 847,
   date: 'January 15, 2025',
   threatLevel: 'ELEVATED' as const,

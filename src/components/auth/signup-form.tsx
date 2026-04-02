@@ -99,7 +99,7 @@ export function AuthForm() {
           <p className="text-sm text-muted-foreground mt-1">
             {authMode === 'signup'
               ? 'Start your free cybersecurity briefing today'
-              : 'Sign in to your Morning Cyber Brief account'}
+              : 'Sign in to your Cyber Brief Unified Platform account'}
           </p>
         </div>
 

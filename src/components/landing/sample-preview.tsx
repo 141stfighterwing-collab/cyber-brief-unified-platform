@@ -68,7 +68,7 @@ export function SamplePreview() {
             <div className="bg-muted/50 px-5 py-3 border-b border-border/50 flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <ShieldCheck className="h-4 w-4 text-primary" />
-                <span className="font-semibold text-sm">Morning Cyber Brief</span>
+                <span className="font-semibold text-sm">Cyber Brief Unified Platform</span>
               </div>
               <div className="flex items-center gap-1.5">
                 <span className="text-xs text-muted-foreground">Vol. 847</span>

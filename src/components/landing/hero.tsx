@@ -23,15 +23,14 @@ export function Hero() {
           </div>
 
           <h1 className="text-4xl md:text-5xl lg:text-6xl font-bold tracking-tight mb-6">
-            <span className="cyber-glow-text">Start every day</span>
+            <span className="cyber-glow-text">One platform.</span>
             <br />
-            <span className="text-primary cyber-glow-text">informed.</span>{' '}
-            Stay ahead of threats.
+            <span className="text-primary cyber-glow-text">Every threat covered.</span>
           </h1>
 
           <p className="text-lg md:text-xl text-muted-foreground max-w-2xl mx-auto mb-10 leading-relaxed">
-            The cybersecurity briefing platform trusted by 2,400+ teams. Get actionable threat intelligence,
-            real-time alerts, and compliance monitoring — delivered every morning.
+            The unified cybersecurity platform trusted by 2,400+ teams. Get actionable threat intelligence,
+            real-time alerts, workflow management, and compliance monitoring — all in one place.
           </p>
 
           <div className="flex flex-col sm:flex-row items-center justify-center gap-4">

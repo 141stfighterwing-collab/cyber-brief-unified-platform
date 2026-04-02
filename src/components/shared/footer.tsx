@@ -10,10 +10,10 @@ export function Footer() {
           <div className="col-span-2 md:col-span-1">
             <div className="flex items-center gap-2 mb-3">
               <ShieldCheck className="h-5 w-5 text-primary" />
-              <span className="font-semibold text-sm">MCB</span>
+              <span className="font-semibold text-sm">CBUP</span>
             </div>
             <p className="text-xs text-muted-foreground leading-relaxed">
-              Start every day informed. Stay ahead of threats with comprehensive cybersecurity briefings and monitoring.
+              Unified cybersecurity awareness, real-time alerts, workflow management, and monitoring — deployable locally or on-prem.
             </p>
           </div>
           <div>
@@ -46,7 +46,7 @@ export function Footer() {
         </div>
         <div className="mt-8 pt-4 border-t border-border/30 flex flex-col md:flex-row items-center justify-between gap-2">
           <p className="text-xs text-muted-foreground">
-            © 2025 Morning Cyber Brief. All rights reserved.
+            © 2025 Cyber Brief Unified Platform. All rights reserved.
           </p>
           <p className="text-xs text-muted-foreground">
             🔒 Trusted by 2,400+ security teams worldwide

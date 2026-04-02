@@ -13,7 +13,7 @@ const stats = [
 
 const testimonials = [
   {
-    quote: "Morning Cyber Brief has transformed our security operations. We went from reactive to proactive in just two weeks.",
+    quote: "Cyber Brief Unified Platform has transformed our security operations. We went from reactive to proactive in just two weeks.",
     author: 'Sarah Mitchell',
     role: 'CISO, TechVault Inc.',
     avatar: 'SM',
@@ -52,7 +52,7 @@ export function Testimonials() {
           Trusted by security teams worldwide
         </h2>
         <p className="text-muted-foreground max-w-xl mx-auto">
-          Hear from the teams that rely on Morning Cyber Brief every day.
+          Hear from the teams that rely on Cyber Brief Unified Platform every day.
         </p>
       </div>
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">

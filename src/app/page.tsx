@@ -82,7 +82,7 @@ export default function Home() {
         <footer className="border-t border-border/30 py-4">
           <div className="container mx-auto px-4 lg:px-6 flex items-center justify-between">
             <p className="text-xs text-muted-foreground">
-              © 2025 Morning Cyber Brief
+              © 2025 Cyber Brief Unified Platform
             </p>
             <p className="text-xs text-muted-foreground">
               Threat Level: ELEVATED

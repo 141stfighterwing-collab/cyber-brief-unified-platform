@@ -38,7 +38,7 @@ export function Navbar() {
             className="flex items-center gap-2 transition-opacity hover:opacity-80"
           >
             <ShieldCheck className="h-6 w-6 text-primary" />
-            <span className="font-bold text-sm tracking-tight">Morning Cyber Brief</span>
+            <span className="font-bold text-sm tracking-tight">Cyber Brief Unified Platform</span>
           </button>
           <nav className="hidden md:flex items-center gap-1">
             {navItems.map((item) => (
@@ -134,7 +134,7 @@ export function LandingNav() {
           className="flex items-center gap-2 transition-opacity hover:opacity-80"
         >
           <Shield className="h-6 w-6 text-primary" />
-          <span className="font-bold text-sm tracking-tight">Morning Cyber Brief</span>
+          <span className="font-bold text-sm tracking-tight">Cyber Brief Unified Platform</span>
         </button>
         <div className="flex items-center gap-3">
           <Button variant="ghost" size="sm" onClick={() => setView('auth')}>

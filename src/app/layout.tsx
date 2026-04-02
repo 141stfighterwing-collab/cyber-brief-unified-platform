@@ -14,10 +14,10 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Morning Cyber Brief — Cybersecurity Awareness Platform",
-  description: "Start every day informed. Stay ahead of threats with comprehensive cybersecurity briefings, real-time alerts, and monitoring.",
+  title: "Cyber Brief Unified Platform — Cybersecurity Awareness & Monitoring",
+  description: "Unified cybersecurity awareness, real-time alerts, workflow management, and low-level monitoring for companies of any size. On-prem ready.",
   keywords: ["cybersecurity", "threat intelligence", "security briefings", "vulnerability monitoring", "incident response"],
-  authors: [{ name: "Morning Cyber Brief" }],
+  authors: [{ name: "Cyber Brief Unified Platform" }],
   icons: {
     icon: "https://z-cdn.chatglm.cn/z-ai/static/logo.svg",
   },
