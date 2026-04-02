@@ -1,0 +1,97 @@
+# ─── Cyber Brief Unified Platform — Docker Compose (MySQL) ───
+#
+# Usage:
+#   docker compose -f docker-compose.mysql.yml up -d
+#   docker compose -f docker-compose.mysql.yml up -d --build
+#   docker compose -f docker-compose.mysql.yml logs -f
+#   docker compose -f docker-compose.mysql.yml down
+#   docker compose -f docker-compose.mysql.yml down -v
+#
+# phpMyAdmin: http://localhost:8081
+
+services:
+  cbup:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: cbup-mysql
+    restart: unless-stopped
+    ports:
+      - "${PORT:-3000}:3000"
+    environment:
+      - DATABASE_PROVIDER=mysql
+      - DATABASE_URL=mysql://cbup:cbup_secure_2025@mysql:3306/cbup
+      - NODE_ENV=production
+      - PORT=3000
+      - HOSTNAME=0.0.0.0
+    depends_on:
+      mysql:
+        condition: service_healthy
+    volumes:
+      - cbup-data:/app/data
+      - cbup-logs:/app/logs
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/api/db-status"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+      start_interval: 5s
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '1.0'
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  mysql:
+    image: mysql:8.0
+    container_name: cbup-mysql-db
+    restart: unless-stopped
+    environment:
+      - MYSQL_ROOT_PASSWORD=root_secure_2025
+      - MYSQL_DATABASE=cbup
+      - MYSQL_USER=cbup
+      - MYSQL_PASSWORD=cbup_secure_2025
+    volumes:
+      - mysql-data:/var/lib/mysql
+    ports:
+      - "${DB_PORT:-3306}:3306"
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-proot_secure_2025"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # phpMyAdmin for database management
+  phpmyadmin:
+    image: phpmyadmin:latest
+    container_name: cbup-phpmyadmin
+    restart: unless-stopped
+    ports:
+      - "${PMA_PORT:-8081}:80"
+    environment:
+      - PMA_HOST=mysql
+      - PMA_USER=cbup
+      - PMA_PASSWORD=cbup_secure_2025
+    depends_on:
+      - mysql
+
+volumes:
+  cbup-data:
+    driver: local
+  cbup-logs:
+    driver: local
+  mysql-data:
+    driver: local

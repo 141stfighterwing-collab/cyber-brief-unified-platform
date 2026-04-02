@@ -1,13 +1,16 @@
-import { PrismaClient } from '@prisma/client'
+/**
+ * Database client for Cyber Brief Unified Platform (v0.3.0)
+ *
+ * This module re-exports the unified `db` object from db-provider.
+ * All API routes should continue to `import { db } from '@/lib/db'`.
+ *
+ * The actual database backend is selected via DATABASE_PROVIDER env var:
+ *   - "sqlite"      (default)
+ *   - "mysql"
+ *   - "postgresql"
+ *   - "mongodb"
+ */
 
-const globalForPrisma = globalThis as unknown as {
-  prisma: PrismaClient | undefined
-}
+export { db, getDb, getProvider, getProviderDisplay, getDbStatus } from './db-provider'
 
-export const db =
-  globalForPrisma.prisma ??
-  new PrismaClient({
-    log: ['query'],
-  })
-
-if (process.env.NODE_ENV !== 'production') globalForPrisma.prisma = db
+export type { DatabaseProvider, DbStatus } from './db-provider'

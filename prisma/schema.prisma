@@ -1,3 +1,15 @@
+// =============================================================================
+// Cyber Brief Unified Platform – Default Schema (SQLite)
+// =============================================================================
+//
+// For MySQL:    cp schema.mysql.prisma schema.prisma && bunx prisma generate
+// For PostgreSQL: cp schema.postgresql.prisma schema.prisma && bunx prisma generate
+//
+// After swapping, run: prisma db push   (or prisma migrate dev)
+//
+// The runtime provider is selected via DATABASE_PROVIDER env var in db-provider.ts.
+// =============================================================================
+
 generator client {
   provider = "prisma-client-js"
 }

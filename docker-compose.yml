@@ -1,4 +1,6 @@
-# ─── Cyber Brief Unified Platform — Docker Compose (Production) ───
+# ─── Cyber Brief Unified Platform — Docker Compose (Production — SQLite) ───
+#
+# Default database: SQLite (file-based, zero config)
 #
 # Quick start:
 #   docker compose up -d
@@ -17,6 +19,12 @@
 #
 # Full reset (including database):
 #   docker compose down -v
+#
+# ── Multi-DB alternatives ──
+#   MySQL:      docker compose -f docker-compose.mysql.yml up -d
+#   PostgreSQL: docker compose -f docker-compose.postgresql.yml up -d
+#   MongoDB:    docker compose -f docker-compose.mongodb.yml up -d
+#   SQL Server: docker compose -f docker-compose.mssql.yml up -d
 
 services:
   cbup:
@@ -31,6 +39,7 @@ services:
       - cbup-data:/app/data
       - cbup-logs:/app/logs
     environment:
+      - DATABASE_PROVIDER=sqlite
       - DATABASE_URL=file:/app/data/cbup.db
       - NODE_ENV=production
       - PORT=3000

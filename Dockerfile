@@ -1,9 +1,13 @@
 # ─── Cyber Brief Unified Platform (CBUP) ───
-# Multi-stage Docker build for production deployment
+# Multi-stage Docker build for production deployment (multi-DB)
 #
 # Usage:
-#   docker compose up -d              # Production (recommended)
-#   docker compose -f docker-compose.dev.yml up  # Development
+#   docker compose up -d                                   # SQLite (default)
+#   docker compose -f docker-compose.mysql.yml up -d       # MySQL
+#   docker compose -f docker-compose.postgresql.yml up -d  # PostgreSQL
+#   docker compose -f docker-compose.mongodb.yml up -d     # MongoDB
+#   docker compose -f docker-compose.mssql.yml up -d       # SQL Server
+#   docker compose -f docker-compose.dev.yml up            # Development
 #
 # Build:
 #   docker compose build              # Build from this Dockerfile
@@ -42,8 +46,10 @@ COPY . .
 # Generate Prisma client
 RUN bunx prisma generate
 
-# Set DATABASE_URL for build time (Prisma needs it)
-ENV DATABASE_URL="file:/app/data/cbup.db"
+# Set DATABASE_URL for build time (Prisma needs it).
+# Uses SQLite as build-time default; overridden at runtime by compose env vars.
+ARG DATABASE_URL="file:/app/data/cbup.db"
+ENV DATABASE_URL=${DATABASE_URL}
 
 # Build Next.js standalone output
 # The build script copies .next/static and public into standalone dir
@@ -55,8 +61,11 @@ RUN bun run build
 FROM node:20-slim AS runner
 
 LABEL maintainer="CBUP Team"
-LABEL description="Cyber Brief Unified Platform - Cybersecurity Awareness & Monitoring"
-LABEL version="0.2.0"
+LABEL description="Cyber Brief Unified Platform - Cybersecurity Awareness & Monitoring (Multi-DB)"
+LABEL version="0.3.0"
+LABEL org.opencontainers.image.title="cbup"
+LABEL org.opencontainers.image.description="Cyber Brief Unified Platform"
+LABEL org.opencontainers.image.version="0.3.0"
 
 RUN apt-get update && \
     apt-get install -y --no-install-recommends openssl curl ca-certificates tini && \
@@ -71,6 +80,7 @@ RUN groupadd --system --gid 1001 cbup && \
 # Set environment
 ENV NODE_ENV=production
 ENV PORT=3000
+ENV DATABASE_PROVIDER=sqlite
 ENV DATABASE_URL="file:/app/data/cbup.db"
 ENV HOSTNAME="0.0.0.0"
 

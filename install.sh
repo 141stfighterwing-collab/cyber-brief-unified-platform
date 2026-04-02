@@ -13,6 +13,7 @@ set -euo pipefail
 # 
 # Tested on: Ubuntu 20.04/22.04/24.04, Linux Mint 21.x/22.x, Windows WSL2
 # Install modes: bare-metal, docker, dev
+# Database: SQLite (default), MySQL, PostgreSQL, MongoDB, SQL Server
 #
 # Usage:
 #   curl -sSL https://raw.githubusercontent.com/141stfighterwing-collab/cyber-brief-unified-platform/main/install.sh | sudo bash
@@ -21,6 +22,10 @@ set -euo pipefail
 #   ./install.sh --dev                # Development mode (no systemd, no root needed)
 #   ./install.sh --port 8080          # Custom port
 #   ./install.sh --yes                # Non-interactive
+#   ./install.sh --db mysql           # Use MySQL database
+#   ./install.sh --db postgresql      # Use PostgreSQL database
+#   ./install.sh --db mongodb         # Use MongoDB database
+#   ./install.sh --db mssql           # Use SQL Server database
 #   ./install.sh --uninstall          # Remove CBUP
 #   ./install.sh --test               # Run validation tests
 #
@@ -58,6 +63,10 @@ OS_NAME=""
 DOCKER_REPO_ID=""   # The actual ID to use for Docker repo (may differ from OS_ID)
 IS_WSL=false
 HAS_SYSTEMD=false
+
+# Database configuration
+DB_PROVIDER="sqlite"
+DB_CONTAINER=""
 
 # ─── Helpers ──────────────────────────────────────────
 info()    { echo -e "${CYAN}[INFO]${NC}  $*"; }
@@ -102,6 +111,467 @@ ask_yes() {
   fi
   read -rp "$(echo -e "${CYAN}$1${NC} [Y/n]: ")" val
   [[ -z "$val" || "$val" =~ ^[Yy] ]]
+}
+
+# ─── Database Selection ───────────────────────────────
+select_database() {
+  step "Selecting database backend"
+
+  if $NONINTERACTIVE; then
+    info "Non-interactive mode — using default database: $DB_PROVIDER"
+    return
+  fi
+
+  echo -e "${BOLD}"
+  cat << 'DBMENU'
+  ╔══════════════════════════════════════════╗
+  ║        Select Database Backend           ║
+  ╠══════════════════════════════════════════╣
+  ║  1) SQLite    (default, zero config)     ║
+  ║  2) MySQL     (production recommended)   ║
+  ║  3) PostgreSQL (production recommended)  ║
+  ║  4) MongoDB   (NoSQL alternative)       ║
+  ║  5) SQL Server (Microsoft environments)  ║
+  ╚══════════════════════════════════════════╝
+DBMENU
+  echo -e "${NC}"
+
+  local choice
+  read -rp "$(echo -e "${CYAN}Choose database [1-5]${NC} (default: ${GREEN}1${NC}): ")" choice
+  choice="${choice:-1}"
+
+  case "$choice" in
+    1) DB_PROVIDER="sqlite" ;;
+    2) DB_PROVIDER="mysql" ;;
+    3) DB_PROVIDER="postgresql" ;;
+    4) DB_PROVIDER="mongodb" ;;
+    5) DB_PROVIDER="mssql" ;;
+    *) DB_PROVIDER="sqlite"; warn "Invalid choice '$choice' — defaulting to SQLite" ;;
+  esac
+
+  ok "Database selected: $DB_PROVIDER"
+}
+
+# ─── Compose File Helper ─────────────────────────────
+get_compose_file() {
+  case "$DB_PROVIDER" in
+    sqlite)      echo "docker-compose.yml" ;;
+    mysql)       echo "docker-compose.mysql.yml" ;;
+    postgresql)  echo "docker-compose.postgresql.yml" ;;
+    mongodb)     echo "docker-compose.mongodb.yml" ;;
+    mssql)       echo "docker-compose.mssql.yml" ;;
+    *)           echo "docker-compose.yml" ;;
+  esac
+}
+
+# ─── Install Database Client (bare-metal) ────────────
+install_db_client() {
+  if $USE_DOCKER || [[ "$DB_PROVIDER" == "sqlite" ]]; then
+    return 0
+  fi
+
+  step "Installing database client tools"
+
+  case "$DB_PROVIDER" in
+    mysql)
+      case "$PKG_MANAGER" in
+        apt-get) apt-get install -y -qq mysql-client > /dev/null 2>&1 || warn "mysql-client install failed" ;;
+        dnf)     dnf install -y -q mysql > /dev/null 2>&1 || warn "mysql install failed" ;;
+        yum)     yum install -y -q mysql > /dev/null 2>&1 || warn "mysql install failed" ;;
+      esac
+      ok "MySQL client installed"
+      ;;
+    postgresql)
+      case "$PKG_MANAGER" in
+        apt-get) apt-get install -y -qq postgresql-client > /dev/null 2>&1 || warn "postgresql-client install failed" ;;
+        dnf)     dnf install -y -q postgresql > /dev/null 2>&1 || warn "postgresql install failed" ;;
+        yum)     yum install -y -q postgresql > /dev/null 2>&1 || warn "postgresql install failed" ;;
+      esac
+      ok "PostgreSQL client installed"
+      ;;
+    mongodb)
+      # Install mongosh
+      if command -v mongosh &>/dev/null; then
+        ok "mongosh already installed"
+        return
+      fi
+      case "$PKG_MANAGER" in
+        apt-get)
+          if [[ -f /etc/os-release ]]; then
+            . /etc/os-release
+            curl -fsSL "https://www.mongodb.org/static/pgp/server-7.0.asc" | gpg --dearmor -o /usr/share/keyrings/mongodb-server-7.0.gpg 2>/dev/null || true
+            echo "deb [ signed-by=/usr/share/keyrings/mongodb-server-7.0.gpg ] http://repo.mongodb.org/apt/${ID} ${VERSION_CODENAME:-jammy}/mongodb-org/7.0 multiverse" | tee /etc/apt/sources.list.d/mongodb-org-7.0.list > /dev/null 2>&1 || true
+            apt-get update -qq 2>/dev/null || true
+            apt-get install -y -q mongodb-mongosh > /dev/null 2>&1 || warn "mongosh install failed — install manually"
+          fi
+          ;;
+        dnf|yum)
+          curl -fsSL "https://www.mongodb.org/static/pgp/server-7.0.asc" | gpg --dearmor -o /usr/share/keyrings/mongodb-server-7.0.gpg 2>/dev/null || true
+          echo -e "[mongodb-org-7.0]\nname=MongoDB Repository\nbaseurl=https://repo.mongodb.org/yum/redhat/\$releasever/mongodb-org/7.0/x86_64/\ngpgcheck=1\nenabled=1\ngpgkey=https://www.mongodb.org/static/pgp/server-7.0.asc" | tee /etc/yum.repos.d/mongodb-org-7.0.repo > /dev/null 2>&1 || true
+          $PKG_MANAGER install -y -q mongodb-mongosh > /dev/null 2>&1 || warn "mongosh install failed — install manually"
+          ;;
+      esac
+      ok "MongoDB client (mongosh) installed"
+      ;;
+    mssql)
+      # Install mssql-tools18
+      if command -v sqlcmd &>/dev/null; then
+        ok "mssql-tools already installed"
+        return
+      fi
+      case "$PKG_MANAGER" in
+        apt-get)
+          if [[ -f /etc/os-release ]]; then
+            . /etc/os-release
+            curl -fsSL https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor -o /usr/share/keyrings/microsoft-prod.gpg 2>/dev/null || true
+            echo "deb [arch=amd64 signed-by=/usr/share/keyrings/microsoft-prod.gpg] https://packages.microsoft.com/ubuntu/${VERSION_ID:-22.04}/prod jammy main" | tee /etc/apt/sources.list.d/mssql-release.list > /dev/null 2>&1 || true
+            apt-get update -qq 2>/dev/null || true
+            ACCEPT_EULA=Y apt-get install -y -q mssql-tools18 unixodbc-dev > /dev/null 2>&1 || warn "mssql-tools18 install failed — see: https://learn.microsoft.com/en-us/sql/linux/sql-server-linux-setup-tools"
+            ln -sf /opt/mssql-tools18/bin/sqlcmd /usr/local/bin/sqlcmd 2>/dev/null || true
+          fi
+          ;;
+        dnf|yum)
+          curl -fsSL https://packages.microsoft.com/config/rhel/9/prod.repo | tee /etc/yum.repos.d/mssql-release.repo > /dev/null 2>&1 || true
+          ACCEPT_EULA=Y $PKG_MANAGER install -y -q mssql-tools18 unixODBC-devel > /dev/null 2>&1 || warn "mssql-tools18 install failed"
+          ln -sf /opt/mssql-tools18/bin/sqlcmd /usr/local/bin/sqlcmd 2>/dev/null || true
+          ;;
+      esac
+      ok "SQL Server tools (mssql-tools18) installed"
+      ;;
+  esac
+}
+
+# ─── Configure Database ──────────────────────────────
+configure_database() {
+  step "Configuring database ($DB_PROVIDER)"
+  cd "$INSTALL_DIR"
+
+  case "$DB_PROVIDER" in
+    sqlite)
+      _configure_sqlite
+      ;;
+    mysql)
+      _configure_mysql
+      ;;
+    postgresql)
+      _configure_postgresql
+      ;;
+    mongodb)
+      _configure_mongodb
+      ;;
+    mssql)
+      _configure_mssql
+      ;;
+    *)
+      warn "Unknown database provider '$DB_PROVIDER' — falling back to SQLite"
+      DB_PROVIDER="sqlite"
+      _configure_sqlite
+      ;;
+  esac
+}
+
+_configure_sqlite() {
+  if ! $DEV_MODE; then
+    mkdir -p "$DATA_DIR"
+    export DATABASE_URL="file:$DATA_DIR/cbup.db"
+
+    cat > "$INSTALL_DIR/.env" << ENV
+DATABASE_URL="file:$DATA_DIR/cbup.db"
+DATABASE_PROVIDER="sqlite"
+NODE_ENV=production
+PORT=$PORT
+ENV
+  else
+    mkdir -p "$INSTALL_DIR/db"
+    export DATABASE_URL="file:$INSTALL_DIR/db/custom.db"
+
+    cat > "$INSTALL_DIR/.env" << ENV
+DATABASE_URL="file:./db/custom.db"
+DATABASE_PROVIDER="sqlite"
+NODE_ENV=development
+PORT=$PORT
+ENV
+  fi
+
+  info "Pushing database schema (SQLite)..."
+  bun run db:push 2>&1 | tail -5
+
+  if $DEV_MODE; then
+    ok "SQLite database initialized at $INSTALL_DIR/db/custom.db"
+  else
+    ok "SQLite database initialized at $DATA_DIR/cbup.db"
+  fi
+}
+
+_configure_mysql() {
+  local db_host="localhost"
+  local db_port="3306"
+  local db_user="cbup"
+  local db_pass="cbup_secure_2025"
+  local db_name="cbup"
+
+  if $USE_DOCKER; then
+    # In Docker mode, the DB host is the service name
+    db_host="mysql"
+    info "MySQL will be provided via Docker Compose (service: mysql)"
+    # Wait for MySQL container to be ready (it will be started by docker compose)
+    # We just set up the env vars; the container connection happens at runtime
+  else
+    # Bare metal — install client
+    install_db_client
+
+    # Prompt for connection details or use defaults
+    if ! $NONINTERACTIVE; then
+      db_host=$(ask "MySQL host" "$db_host")
+      db_port=$(ask "MySQL port" "$db_port")
+      db_user=$(ask "MySQL user" "$db_user")
+      db_pass=$(ask "MySQL password" "$db_pass")
+      db_name=$(ask "MySQL database name" "$db_name")
+    fi
+
+    # Create database and user
+    info "Creating MySQL database and user..."
+    if command -v mysql &>/dev/null; then
+      mysql -h "$db_host" -P "$db_port" -u root \
+        -e "CREATE DATABASE IF NOT EXISTS \`${db_name}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+            CREATE USER IF NOT EXISTS '${db_user}'@'%' IDENTIFIED BY '${db_pass}';
+            GRANT ALL PRIVILEGES ON \`${db_name}\`.* TO '${db_user}'@'%';
+            FLUSH PRIVILEGES;" 2>&1 \
+        || warn "Could not create MySQL database/user automatically — please create them manually"
+    else
+      warn "mysql client not found — please create database '${db_name}' and user '${db_user}' manually"
+    fi
+  fi
+
+  local db_url="mysql://${db_user}:${db_pass}@${db_host}:${db_port}/${db_name}"
+  export DATABASE_URL="$db_url"
+
+  # Write .env
+  cat > "$INSTALL_DIR/.env" << ENV
+DATABASE_URL="${db_url}"
+DATABASE_PROVIDER="mysql"
+NODE_ENV=production
+PORT=$PORT
+ENV
+
+  # Set up Prisma schema for MySQL
+  if [[ -f "$INSTALL_DIR/prisma/schema.mysql.prisma" ]]; then
+    info "Applying MySQL Prisma schema..."
+    cp "$INSTALL_DIR/prisma/schema.mysql.prisma" "$INSTALL_DIR/prisma/schema.prisma"
+  else
+    warn "schema.mysql.prisma not found — using default schema (may need manual adjustment)"
+  fi
+
+  if ! $USE_DOCKER; then
+    info "Generating Prisma client (MySQL)..."
+    bunx prisma generate 2>&1 | tail -3
+    info "Pushing database schema (MySQL)..."
+    bunx prisma db push 2>&1 | tail -5
+  fi
+
+  ok "MySQL configured: ${db_user}@${db_host}:${db_port}/${db_name}"
+}
+
+_configure_postgresql() {
+  local db_host="localhost"
+  local db_port="5432"
+  local db_user="cbup"
+  local db_pass="cbup_secure_2025"
+  local db_name="cbup"
+
+  if $USE_DOCKER; then
+    db_host="postgresql"
+    info "PostgreSQL will be provided via Docker Compose (service: postgresql)"
+  else
+    install_db_client
+
+    if ! $NONINTERACTIVE; then
+      db_host=$(ask "PostgreSQL host" "$db_host")
+      db_port=$(ask "PostgreSQL port" "$db_port")
+      db_user=$(ask "PostgreSQL user" "$db_user")
+      db_pass=$(ask "PostgreSQL password" "$db_pass")
+      db_name=$(ask "PostgreSQL database name" "$db_name")
+    fi
+
+    # Create database and user
+    info "Creating PostgreSQL database and user..."
+    if command -v psql &>/dev/null; then
+      sudo -u postgres psql -c "DO \$\$BEGIN
+        IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = '${db_user}') THEN
+          CREATE ROLE ${db_user} WITH LOGIN PASSWORD '${db_pass}';
+        END IF;
+      END\$\$;
+      SELECT 'CREATE DATABASE ${db_name} OWNER ${db_user}'
+      WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = '${db_name}')\gexec" 2>&1 \
+        || warn "Could not create PostgreSQL database/user automatically — please create them manually"
+    else
+      warn "psql client not found — please create database '${db_name}' and user '${db_user}' manually"
+    fi
+  fi
+
+  local db_url="postgresql://${db_user}:${db_pass}@${db_host}:${db_port}/${db_name}"
+  export DATABASE_URL="$db_url"
+
+  cat > "$INSTALL_DIR/.env" << ENV
+DATABASE_URL="${db_url}"
+DATABASE_PROVIDER="postgresql"
+NODE_ENV=production
+PORT=$PORT
+ENV
+
+  if [[ -f "$INSTALL_DIR/prisma/schema.postgresql.prisma" ]]; then
+    info "Applying PostgreSQL Prisma schema..."
+    cp "$INSTALL_DIR/prisma/schema.postgresql.prisma" "$INSTALL_DIR/prisma/schema.prisma"
+  else
+    warn "schema.postgresql.prisma not found — using default schema (may need manual adjustment)"
+  fi
+
+  if ! $USE_DOCKER; then
+    info "Generating Prisma client (PostgreSQL)..."
+    bunx prisma generate 2>&1 | tail -3
+    info "Pushing database schema (PostgreSQL)..."
+    bunx prisma db push 2>&1 | tail -5
+  fi
+
+  ok "PostgreSQL configured: ${db_user}@${db_host}:${db_port}/${db_name}"
+}
+
+_configure_mongodb() {
+  local db_host="localhost"
+  local db_port="27017"
+  local db_user="cbup"
+  local db_pass="cbup_secure_2025"
+  local db_name="cbup"
+
+  if $USE_DOCKER; then
+    db_host="mongodb"
+    info "MongoDB will be provided via Docker Compose (service: mongodb)"
+  else
+    install_db_client
+
+    if ! $NONINTERACTIVE; then
+      db_host=$(ask "MongoDB host" "$db_host")
+      db_port=$(ask "MongoDB port" "$db_port")
+      db_user=$(ask "MongoDB user (leave empty for no auth)" "$db_user")
+      db_pass=$(ask "MongoDB password (leave empty for no auth)" "$db_pass")
+      db_name=$(ask "MongoDB database name" "$db_name")
+    fi
+
+    # Create user
+    if command -v mongosh &>/dev/null; then
+      info "Creating MongoDB user..."
+      mongosh "mongodb://${db_host}:${db_port}/${db_name}" --quiet --eval "
+        try {
+          db.createUser({
+            user: '${db_user}',
+            pwd: '${db_pass}',
+            roles: [{role: 'readWrite', db: '${db_name}'}]
+          });
+          print('User created successfully');
+        } catch(e) {
+          if (e.codeName === 'UserAlreadyExists') print('User already exists');
+          else print('Warning: ' + e.message);
+        }
+      " 2>&1 || warn "Could not create MongoDB user automatically — please create manually"
+    else
+      warn "mongosh not found — please create MongoDB user '${db_user}' manually"
+    fi
+  fi
+
+  # Build connection URL
+  local db_url
+  if [[ -n "$db_user" && -n "$db_pass" ]]; then
+    db_url="mongodb://${db_user}:${db_pass}@${db_host}:${db_port}/${db_name}"
+  else
+    db_url="mongodb://${db_host}:${db_port}/${db_name}"
+  fi
+
+  export DATABASE_URL="$db_url"
+
+  cat > "$INSTALL_DIR/.env" << ENV
+DATABASE_URL="${db_url}"
+DATABASE_PROVIDER="mongodb"
+NODE_ENV=production
+PORT=$PORT
+ENV
+
+  info "MongoDB does not use Prisma — skipping schema push"
+
+  if ! $USE_DOCKER && command -v mongosh &>/dev/null; then
+    info "Creating MongoDB indexes..."
+    mongosh "$db_url" --quiet --eval "
+      db.briefs.createIndex({ createdAt: -1 });
+      db.briefs.createIndex({ status: 1 });
+      db.briefs.createIndex({ priority: 1 });
+      db.users.createIndex({ email: 1 }, { unique: true });
+    " 2>&1 || warn "Could not create indexes automatically"
+  fi
+
+  ok "MongoDB configured: ${db_user}@${db_host}:${db_port}/${db_name}"
+}
+
+_configure_mssql() {
+  local db_host="localhost"
+  local db_port="1433"
+  local db_user="sa"
+  local db_pass="Strong_Passw0rd_2025"
+  local db_name="cbup"
+
+  if $USE_DOCKER; then
+    db_host="mssql"
+    info "SQL Server will be provided via Docker Compose (service: mssql)"
+  else
+    # SQL Server on Linux requires manual setup
+    warn "SQL Server on Linux requires manual installation and configuration."
+    warn "See: https://learn.microsoft.com/en-us/sql/linux/sql-server-linux-overview"
+
+    if ! $NONINTERACTIVE; then
+      db_host=$(ask "SQL Server host" "$db_host")
+      db_port=$(ask "SQL Server port" "$db_port")
+      db_user=$(ask "SQL Server user" "$db_user")
+      db_pass=$(ask "SQL Server password" "$db_pass")
+      db_name=$(ask "SQL Server database name" "$db_name")
+    fi
+
+    # Try to create database if sqlcmd is available
+    if command -v sqlcmd &>/dev/null; then
+      info "Creating SQL Server database..."
+      sqlcmd -S "$db_host,$db_port" -U "$db_user" -P "$db_pass" -Q "
+        IF NOT EXISTS (SELECT name FROM sys.databases WHERE name = '${db_name}')
+        BEGIN
+          CREATE DATABASE [${db_name}];
+        END;
+      " 2>&1 || warn "Could not create database automatically — please create manually"
+    else
+      warn "sqlcmd not found — please create database '${db_name}' manually"
+    fi
+  fi
+
+  local db_url="mssql://${db_user}:${db_pass}@${db_host}:${db_port}/${db_name}"
+  export DATABASE_URL="$db_url"
+
+  cat > "$INSTALL_DIR/.env" << ENV
+DATABASE_URL="${db_url}"
+DATABASE_PROVIDER="mssql"
+NODE_ENV=production
+PORT=$PORT
+ENV
+
+  if [[ -f "$INSTALL_DIR/prisma/schema.mssql.prisma" ]]; then
+    info "Applying SQL Server Prisma schema..."
+    cp "$INSTALL_DIR/prisma/schema.mssql.prisma" "$INSTALL_DIR/prisma/schema.prisma"
+  else
+    warn "schema.mssql.prisma not found — using default schema (may need manual adjustment)"
+  fi
+
+  if ! $USE_DOCKER && command -v sqlcmd &>/dev/null; then
+    info "Generating Prisma client (SQL Server)..."
+    bunx prisma generate 2>&1 | tail -3
+    info "Pushing database schema (SQL Server)..."
+    bunx prisma db push 2>&1 | tail -5
+  fi
+
+  ok "SQL Server configured: ${db_user}@${db_host}:${db_port}/${db_name}"
 }
 
 # ─── WSL Detection ───────────────────────────────────
@@ -291,17 +761,22 @@ install_docker() {
     ok "Docker already installed: $(docker --version)"
   fi
 
-  # Use the repo's Dockerfile and docker-compose.yml
+  # Use the repo's Dockerfile and the correct compose file
   info "Preparing Docker build files..."
+
+  local compose_file
+  compose_file=$(get_compose_file)
 
   # Ensure app files are in place first
   if [[ ! -f "$INSTALL_DIR/Dockerfile" ]]; then
     warn "Dockerfile not found in $INSTALL_DIR — copying from repo"
   fi
-  if [[ ! -f "$INSTALL_DIR/docker-compose.yml" ]]; then
-    warn "docker-compose.yml not found in $INSTALL_DIR — the installer expects these files in the repo"
-    info "Generating docker-compose.yml for compatibility..."
-    cat > "$INSTALL_DIR/docker-compose.yml" << YML
+
+  # If the specific compose file doesn't exist, generate a default one
+  if [[ ! -f "$INSTALL_DIR/$compose_file" ]]; then
+    if [[ "$compose_file" == "docker-compose.yml" ]]; then
+      warn "$compose_file not found in $INSTALL_DIR — generating for compatibility..."
+      cat > "$INSTALL_DIR/$compose_file" << YML
 services:
   cbup:
     build:
@@ -316,6 +791,7 @@ services:
       - cbup-logs:/app/logs
     environment:
       - DATABASE_URL=file:/app/data/cbup.db
+      - DATABASE_PROVIDER=sqlite
       - NODE_ENV=production
       - PORT=3000
       - HOSTNAME=0.0.0.0
@@ -348,20 +824,84 @@ volumes:
     driver: local
     name: cbup-logs
 YML
+    else
+      warn "$compose_file not found in $INSTALL_DIR — the installer expects this file in the repo"
+      warn "Falling back to docker-compose.yml..."
+      compose_file="docker-compose.yml"
+      if [[ ! -f "$INSTALL_DIR/$compose_file" ]]; then
+        cat > "$INSTALL_DIR/$compose_file" << YML
+services:
+  cbup:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: cyber-brief-up
+    restart: unless-stopped
+    ports:
+      - "${PORT:-3000}:3000"
+    volumes:
+      - cbup-data:/app/data
+      - cbup-logs:/app/logs
+    environment:
+      - DATABASE_URL=file:/app/data/cbup.db
+      - DATABASE_PROVIDER=sqlite
+      - NODE_ENV=production
+      - PORT=3000
+      - HOSTNAME=0.0.0.0
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+      start_interval: 5s
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '1.0'
+        reservations:
+          memory: 128M
+          cpus: '0.25'
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  cbup-data:
+    driver: local
+    name: cbup-data
+  cbup-logs:
+    driver: local
+    name: cbup-logs
+YML
+      fi
+    fi
   fi
 
-  # Build and start
+  # Build and start using the correct compose file
   cd "$INSTALL_DIR"
   info "Building CBUP Docker image (this may take a few minutes)..."
   info "Using multi-stage Dockerfile with Bun runtime and Prisma..."
-  docker compose build 2>&1 | tail -10
+  info "Compose file: $compose_file | Database: $DB_PROVIDER"
+  docker compose -f "$compose_file" build 2>&1 | tail -10
   info "Starting CBUP container..."
-  docker compose up -d 2>&1
+  docker compose -f "$compose_file" up -d 2>&1
+
+  # Determine DB container name for health checks
+  case "$DB_PROVIDER" in
+    mysql)       DB_CONTAINER="cbup-mysql" ;;
+    postgresql)  DB_CONTAINER="cbup-postgresql" ;;
+    mongodb)     DB_CONTAINER="cbup-mongodb" ;;
+    mssql)       DB_CONTAINER="cbup-mssql" ;;
+  esac
 
   # Wait for health check
   info "Waiting for container to become healthy..."
   local retries=0
-  while [[ $retries -lt 15 ]]; do
+  while [[ $retries -lt 30 ]]; do
     if docker ps --format '{{.Status}}' --filter name=cyber-brief-up 2>/dev/null | grep -q "healthy"; then
       ok "CBUP container is healthy!"
       break
@@ -376,12 +916,25 @@ YML
     ((retries++))
   done
 
-  if [[ $retries -eq 15 ]]; then
+  if [[ $retries -eq 30 ]]; then
     warn "Health check not yet passing (container may still be starting)"
-    warn "Check status with: docker compose ps"
+    warn "Check status with: docker compose -f $compose_file ps"
   fi
 
-  ok "CBUP is running in Docker on port $PORT"
+  ok "CBUP is running in Docker on port $PORT (database: $DB_PROVIDER)"
+
+  # Show database admin panel URL if applicable
+  case "$DB_PROVIDER" in
+    mysql)
+      info "MySQL admin panel: phpMyAdmin should be accessible (check docker-compose.mysql.yml)"
+      ;;
+    postgresql)
+      info "PostgreSQL admin panel: pgAdmin should be accessible (check docker-compose.postgresql.yml)"
+      ;;
+    mongodb)
+      info "MongoDB admin panel: mongo-express should be accessible (check docker-compose.mongodb.yml)"
+      ;;
+  esac
 }
 
 # ─── Bare-Metal Install Path ──────────────────────────
@@ -496,40 +1049,7 @@ install_dependencies() {
 
 setup_database() {
   step "Setting up database"
-
-  cd "$INSTALL_DIR"
-
-  if ! $DEV_MODE; then
-    # Create data directory
-    mkdir -p "$DATA_DIR"
-    export DATABASE_URL="file:$DATA_DIR/cbup.db"
-    
-    # Write .env for future use
-    cat > "$INSTALL_DIR/.env" << ENV
-DATABASE_URL="file:$DATA_DIR/cbup.db"
-NODE_ENV=production
-PORT=$PORT
-ENV
-  else
-    # Dev mode — use local db directory
-    mkdir -p "$INSTALL_DIR/db"
-    export DATABASE_URL="file:$INSTALL_DIR/db/custom.db"
-    
-    cat > "$INSTALL_DIR/.env" << ENV
-DATABASE_URL="file:./db/custom.db"
-NODE_ENV=development
-PORT=$PORT
-ENV
-  fi
-
-  info "Pushing database schema..."
-  bun run db:push 2>&1 | tail -5
-  
-  if $DEV_MODE; then
-    ok "Database initialized at $INSTALL_DIR/db/custom.db"
-  else
-    ok "Database initialized at $DATA_DIR/cbup.db"
-  fi
+  configure_database
 }
 
 build_application() {
@@ -591,6 +1111,16 @@ setup_systemd() {
   local bun_path
   bun_path="$(which bun 2>/dev/null || echo "/usr/local/bin/bun")"
 
+  # Determine DATABASE_URL for systemd service
+  local svc_db_url
+  if [[ "$DB_PROVIDER" == "sqlite" ]]; then
+    svc_db_url="file:$DATA_DIR/cbup.db"
+  else
+    # Read from .env
+    svc_db_url=$(grep -E "^DATABASE_URL=" "$INSTALL_DIR/.env" 2>/dev/null | cut -d= -f2- | tr -d '"' || echo "file:$DATA_DIR/cbup.db")
+    svc_db_url="${svc_db_url:-file:$DATA_DIR/cbup.db}"
+  fi
+
   # Create systemd service
   cat > "/etc/systemd/system/${SERVICE_NAME}.service" << SVC
 [Unit]
@@ -607,7 +1137,8 @@ Group=cbup
 WorkingDirectory=$INSTALL_DIR
 Environment=NODE_ENV=production
 Environment=PORT=$PORT
-Environment=DATABASE_URL=file:$DATA_DIR/cbup.db
+Environment=DATABASE_PROVIDER=$DB_PROVIDER
+Environment=DATABASE_URL=$svc_db_url
 Environment=PATH=/usr/local/bin:/usr/bin:/bin
 ExecStart=$bun_path run start
 Restart=always
@@ -680,13 +1211,28 @@ start_service() {
 
   if $USE_DOCKER; then
     cd "$INSTALL_DIR"
-    docker compose up -d 2>&1 | tail -3
+    local compose_file
+    compose_file=$(get_compose_file)
+    if [[ -f "$compose_file" ]]; then
+      docker compose -f "$compose_file" up -d 2>&1 | tail -3
+    else
+      docker compose up -d 2>&1 | tail -3
+    fi
     return
   fi
 
   if ! $HAS_SYSTEMD; then
+    # Read DATABASE_URL from .env for manual start
+    local env_url
+    env_url=""
+    if [[ -f "$INSTALL_DIR/.env" ]]; then
+      env_url=$(grep -E "^DATABASE_URL=" "$INSTALL_DIR/.env" 2>/dev/null | cut -d= -f2- | tr -d '"' || echo "")
+    fi
+    if [[ -z "$env_url" ]]; then
+      env_url="file:$DATA_DIR/cbup.db"
+    fi
     warn "No systemd — start CBUP manually:"
-    warn "  cd $INSTALL_DIR && DATABASE_URL=\"file:$DATA_DIR/cbup.db\" NODE_ENV=production PORT=$PORT bun run start"
+    warn "  cd $INSTALL_DIR && DATABASE_URL=\"$env_url\" NODE_ENV=production PORT=$PORT bun run start"
     return
   fi
 
@@ -749,11 +1295,23 @@ elif command -v systemctl &>/dev/null && systemctl --version &>/dev/null 2>&1; t
   HAS_SYSTEMD=true
 fi
 
-# Read PORT from .env if available
+# Read config from .env if available
+DB_PROVIDER="sqlite"
+DATABASE_URL=""
 if [[ -f "$INSTALL_DIR/.env" ]]; then
   PORT=$(grep -E "^PORT=" "$INSTALL_DIR/.env" 2>/dev/null | cut -d= -f2 | tr -d '"' || echo "3000")
   PORT="${PORT:-3000}"
+  DB_PROVIDER=$(grep -E "^DATABASE_PROVIDER=" "$INSTALL_DIR/.env" 2>/dev/null | cut -d= -f2 | tr -d '"' || echo "sqlite")
+  DB_PROVIDER="${DB_PROVIDER:-sqlite}"
+  DATABASE_URL=$(grep -E "^DATABASE_URL=" "$INSTALL_DIR/.env" 2>/dev/null | cut -d= -f2- | tr -d '"' || echo "")
 fi
+
+# Helper: mask password in URL
+mask_password() {
+  local url="$1"
+  # Replace password between : and @ with ****
+  echo "$url" | sed -E 's/:([^:@]{1,})@/:****@/'
+}
 
 usage() {
   cat <<HELP
@@ -771,6 +1329,7 @@ ${BOLD}Commands:${NC}
   backup             Create a database backup
   restore <file>     Restore from a backup file
   reset-db           Reset the database (DESTRUCTIVE)
+  db-info            Show database details and statistics
   shell              Open a shell in the app directory
   doctor             Run diagnostics checks
   uninstall          Remove CBUP completely
@@ -780,6 +1339,7 @@ ${BOLD}Examples:${NC}
   cbup logs 100
   cbup update
   cbup backup
+  cbup db-info
   cbup doctor
 HELP
 }
@@ -787,10 +1347,22 @@ HELP
 cmd_start() {
   echo -e "${CYAN}[CBUP]${NC} Starting service..."
 
-  # Docker mode
+  # Docker mode — find compose file
+  local compose_file=""
   if [[ -f "$INSTALL_DIR/docker-compose.yml" ]] && command -v docker &>/dev/null; then
+    compose_file="docker-compose.yml"
+  fi
+  # Check for DB-specific compose files
+  for f in docker-compose.mysql.yml docker-compose.postgresql.yml docker-compose.mongodb.yml docker-compose.mssql.yml; do
+    if [[ -f "$INSTALL_DIR/$f" ]] && docker ps -a --format '{{.Names}}' 2>/dev/null | grep -q "cbup-mysql\|cbup-postgresql\|cbup-mongodb\|cbup-mssql"; then
+      compose_file="$f"
+      break
+    fi
+  done
+
+  if [[ -n "$compose_file" ]] && command -v docker &>/dev/null; then
     if docker ps -a --format '{{.Names}}' 2>/dev/null | grep -q cyber-brief-up; then
-      cd "$INSTALL_DIR" && docker compose up -d 2>&1 | tail -3
+      cd "$INSTALL_DIR" && docker compose -f "$compose_file" up -d 2>&1 | tail -3
       sleep 2
       cmd_status
       return
@@ -825,10 +1397,18 @@ cmd_start() {
 cmd_stop() {
   echo -e "${CYAN}[CBUP]${NC} Stopping service..."
 
-  # Docker
-  if [[ -f "$INSTALL_DIR/docker-compose.yml" ]] && command -v docker &>/dev/null; then
+  # Docker — try DB-specific compose files first
+  local compose_file=""
+  for f in docker-compose.mysql.yml docker-compose.postgresql.yml docker-compose.mongodb.yml docker-compose.mssql.yml docker-compose.yml; do
+    if [[ -f "$INSTALL_DIR/$f" ]] && command -v docker &>/dev/null; then
+      compose_file="$f"
+      break
+    fi
+  done
+
+  if [[ -n "$compose_file" ]] && command -v docker &>/dev/null; then
     if docker ps -a --format '{{.Names}}' 2>/dev/null | grep -q cyber-brief-up; then
-      cd "$INSTALL_DIR" && docker compose down 2>&1
+      cd "$INSTALL_DIR" && docker compose -f "$compose_file" down 2>&1
       echo -e "${GREEN}[CBUP]${NC} Service stopped."
       return
     fi
@@ -881,15 +1461,23 @@ cmd_status() {
   echo -e "  Port:        $PORT"
 
   # Database
-  local db_file="${DATA_DIR:-/var/lib/cbup}/cbup.db"
-  if [[ -f "$db_file" ]]; then
-    DB_SIZE=$(du -h "$db_file" | cut -f1)
-    echo -e "  Database:    ${GREEN}OK${NC} ($DB_SIZE)"
-  elif [[ -f "$INSTALL_DIR/db/custom.db" ]]; then
-    DB_SIZE=$(du -h "$INSTALL_DIR/db/custom.db" | cut -f1)
-    echo -e "  Database:    ${GREEN}OK (dev)${NC} ($DB_SIZE)"
-  else
-    echo -e "  Database:    ${YELLOW}Not found${NC}"
+  echo -e "  Database:    $DB_PROVIDER"
+  if [[ -n "$DATABASE_URL" ]]; then
+    echo -e "  Connection:  $(mask_password "$DATABASE_URL")"
+  fi
+
+  # SQLite file size
+  if [[ "$DB_PROVIDER" == "sqlite" ]]; then
+    local db_file="${DATA_DIR:-/var/lib/cbup}/cbup.db"
+    if [[ -f "$db_file" ]]; then
+      DB_SIZE=$(du -h "$db_file" | cut -f1)
+      echo -e "  DB File:     ${GREEN}OK${NC} ($DB_SIZE)"
+    elif [[ -f "$INSTALL_DIR/db/custom.db" ]]; then
+      DB_SIZE=$(du -h "$INSTALL_DIR/db/custom.db" | cut -f1)
+      echo -e "  DB File:     ${GREEN}OK (dev)${NC} ($DB_SIZE)"
+    else
+      echo -e "  DB File:     ${YELLOW}Not found${NC}"
+    fi
   fi
 
   # Disk usage
@@ -907,9 +1495,8 @@ cmd_status() {
 
   # Last backup
   if [[ -d "${BACKUP_DIR:-/var/backups/cbup}" ]]; then
-    LAST_BACKUP=$(ls -t "${BACKUP_DIR:-/var/backups/cbup}"/cbup-backup-*.db.gz 2>/dev/null | head -1)
+    LAST_BACKUP=$(ls -t "${BACKUP_DIR:-/var/backups/cbup}"/cbup-backup-*.* 2>/dev/null | head -1)
     if [[ -n "$LAST_BACKUP" ]]; then
-      # stat works on both Linux and WSL
       BACKUP_DATE=$(stat -c %y "$LAST_BACKUP" 2>/dev/null | cut -d. -f1 || stat -f "%Sm" "$LAST_BACKUP" 2>/dev/null)
       echo -e "  Last Backup: $BACKUP_DATE"
     fi
@@ -970,11 +1557,14 @@ cmd_update() {
   echo -e "${CYAN}[CBUP]${NC} Installing dependencies..."
   bun install 2>&1 | tail -3
 
-  echo -e "${CYAN}[CBUP]${NC} Pushing database schema..."
-  if [[ -f .env ]]; then
-    set -a; source .env; set +a
+  # Push schema only for Prisma-supported databases
+  if [[ "$DB_PROVIDER" != "mongodb" ]]; then
+    echo -e "${CYAN}[CBUP]${NC} Pushing database schema..."
+    if [[ -f .env ]]; then
+      set -a; source .env; set +a
+    fi
+    bun run db:push 2>&1 | tail -3
   fi
-  bun run db:push 2>&1 | tail -3
 
   echo -e "${CYAN}[CBUP]${NC} Building production bundle..."
   bun run build 2>&1 | tail -5
@@ -987,26 +1577,89 @@ cmd_backup() {
   mkdir -p "${BACKUP_DIR:-/var/backups/cbup}"
   local timestamp
   timestamp=$(date +%Y%m%d-%H%M%S)
-  local backup_file="${BACKUP_DIR:-/var/backups/cbup}/cbup-backup-${timestamp}.db"
-  
-  # Find the database file
-  local db_file=""
-  if [[ -f "${DATA_DIR:-/var/lib/cbup}/cbup.db" ]]; then
-    db_file="${DATA_DIR:-/var/lib/cbup}/cbup.db"
-  elif [[ -f "$INSTALL_DIR/db/custom.db" ]]; then
-    db_file="$INSTALL_DIR/db/custom.db"
-  fi
 
-  if [[ -n "$db_file" ]]; then
-    cp "$db_file" "$backup_file"
-    gzip -f "$backup_file"
-    echo -e "${GREEN}[CBUP]${NC} Backup created: ${backup_file}.gz ($(du -h "${backup_file}.gz" | cut -f1))"
-  else
-    echo -e "${YELLOW}[CBUP]${NC} No database to backup."
-  fi
+  case "$DB_PROVIDER" in
+    sqlite)
+      local backup_file="${BACKUP_DIR:-/var/backups/cbup}/cbup-backup-${timestamp}.db"
+      local db_file=""
+      if [[ -f "${DATA_DIR:-/var/lib/cbup}/cbup.db" ]]; then
+        db_file="${DATA_DIR:-/var/lib/cbup}/cbup.db"
+      elif [[ -f "$INSTALL_DIR/db/custom.db" ]]; then
+        db_file="$INSTALL_DIR/db/custom.db"
+      fi
+
+      if [[ -n "$db_file" ]]; then
+        cp "$db_file" "$backup_file"
+        gzip -f "$backup_file"
+        echo -e "${GREEN}[CBUP]${NC} SQLite backup created: ${backup_file}.gz ($(du -h "${backup_file}.gz" | cut -f1))"
+      else
+        echo -e "${YELLOW}[CBUP]${NC} No SQLite database to backup."
+      fi
+      ;;
+
+    mysql)
+      local backup_file="${BACKUP_DIR:-/var/backups/cbup}/cbup-backup-${timestamp}.sql.gz"
+      if command -v mysqldump &>/dev/null; then
+        # Extract connection details from DATABASE_URL
+        local my_url="${DATABASE_URL:-mysql://cbup:cbup_secure_2025@localhost:3306/cbup}"
+        my_url="${my_url#mysql://}"
+        local my_user="${my_url%%:*}"
+        local my_pass="${my_url#*:}"; my_pass="${my_pass%%@*}"
+        local my_host_port="${my_url#*@}"; my_host_port="${my_host_port%%/*}"
+        local my_db="${my_url##*/}"
+
+        mysqldump -h "${my_host_port%%:*}" -P "${my_host_port##*:}" -u "$my_user" -p"$my_pass" "$my_db" 2>/dev/null | gzip > "$backup_file" \
+          && echo -e "${GREEN}[CBUP]${NC} MySQL backup created: ${backup_file} ($(du -h "$backup_file" | cut -f1))" \
+          || echo -e "${RED}[CBUP]${NC} MySQL backup failed — check connection settings"
+      else
+        echo -e "${RED}[CBUP]${NC} mysqldump not found. Install mysql-client."
+      fi
+      ;;
+
+    postgresql)
+      local backup_file="${BACKUP_DIR:-/var/backups/cbup}/cbup-backup-${timestamp}.sql.gz"
+      if command -v pg_dump &>/dev/null; then
+        local pg_url="${DATABASE_URL:-postgresql://cbup:cbup_secure_2025@localhost:5432/cbup}"
+        pg_dump "$pg_url" 2>/dev/null | gzip > "$backup_file" \
+          && echo -e "${GREEN}[CBUP]${NC} PostgreSQL backup created: ${backup_file} ($(du -h "$backup_file" | cut -f1))" \
+          || echo -e "${RED}[CBUP]${NC} PostgreSQL backup failed — check connection settings"
+      else
+        echo -e "${RED}[CBUP]${NC} pg_dump not found. Install postgresql-client."
+      fi
+      ;;
+
+    mongodb)
+      local backup_file="${BACKUP_DIR:-/var/backups/cbup}/cbup-backup-${timestamp}.mongodump.gz"
+      if command -v mongodump &>/dev/null; then
+        local mongo_url="${DATABASE_URL:-mongodb://cbup:cbup_secure_2025@localhost:27017/cbup}"
+        local backup_dir="${BACKUP_DIR:-/var/backups/cbup}/cbup-mongodump-${timestamp}"
+        mongodump --uri="$mongo_url" --out="$backup_dir" 2>/dev/null \
+          && tar -czf "$backup_file" -C "$(dirname "$backup_dir")" "$(basename "$backup_dir")" 2>/dev/null \
+          && rm -rf "$backup_dir" \
+          && echo -e "${GREEN}[CBUP]${NC} MongoDB backup created: ${backup_file} ($(du -h "$backup_file" | cut -f1))" \
+          || { rm -rf "$backup_dir" 2>/dev/null; echo -e "${RED}[CBUP]${NC} MongoDB backup failed — check connection settings"; }
+      else
+        echo -e "${RED}[CBUP]${NC} mongodump not found. Install mongosh / mongodb-tools."
+      fi
+      ;;
+
+    mssql)
+      local backup_file="${BACKUP_DIR:-/var/backups/cbup}/cbup-backup-${timestamp}.sql"
+      if command -v sqlcmd &>/dev/null; then
+        echo -e "${YELLOW}[CBUP]${NC} SQL Server backup: consider using native BACKUP DATABASE command"
+        echo -e "${YELLOW}[CBUP]${NC} sqlcmd -S host -U sa -P pass -Q \"BACKUP DATABASE [cbup] TO DISK='${backup_file}'\""
+      else
+        echo -e "${RED}[CBUP]${NC} sqlcmd not found. Install mssql-tools18."
+      fi
+      ;;
+
+    *)
+      echo -e "${YELLOW}[CBUP]${NC} Unknown database provider '$DB_PROVIDER' — cannot backup"
+      ;;
+  esac
   
   # Keep only last 30 backups
-  cd "${BACKUP_DIR:-/var/backups/cbup}" 2>/dev/null && ls -t cbup-backup-*.db.gz 2>/dev/null | tail -n +31 | xargs rm -f 2>/dev/null || true
+  cd "${BACKUP_DIR:-/var/backups/cbup}" 2>/dev/null && ls -t cbup-backup-* 2>/dev/null | tail -n +31 | xargs rm -f 2>/dev/null || true
 }
 
 cmd_restore() {
@@ -1014,7 +1667,7 @@ cmd_restore() {
   if [[ -z "$file" ]]; then
     echo -e "${RED}[CBUP]${NC} Usage: cbup restore <backup-file>"
     echo -e "${YELLOW}[CBUP]${NC} Available backups:"
-    ls -lh "${BACKUP_DIR:-/var/backups/cbup}"/cbup-backup-*.db.gz 2>/dev/null || echo "  (none found)"
+    ls -lht "${BACKUP_DIR:-/var/backups/cbup}"/cbup-backup-* 2>/dev/null || echo "  (none found)"
     return 1
   fi
 
@@ -1028,22 +1681,84 @@ cmd_restore() {
   # Backup current before restoring
   cmd_backup
 
-  # Determine target
-  local target_db="${DATA_DIR:-/var/lib/cbup}/cbup.db"
-  if [[ -f "$INSTALL_DIR/db/custom.db" ]]; then
-    target_db="$INSTALL_DIR/db/custom.db"
-  fi
-  mkdir -p "$(dirname "$target_db")"
+  case "$DB_PROVIDER" in
+    sqlite)
+      local target_db="${DATA_DIR:-/var/lib/cbup}/cbup.db"
+      if [[ -f "$INSTALL_DIR/db/custom.db" ]]; then
+        target_db="$INSTALL_DIR/db/custom.db"
+      fi
+      mkdir -p "$(dirname "$target_db")"
 
-  # Restore
-  if [[ "$file" == *.gz ]]; then
-    gunzip -c "$file" > "$target_db"
-  else
-    cp "$file" "$target_db"
-  fi
+      if [[ "$file" == *.gz ]]; then
+        gunzip -c "$file" > "$target_db"
+      else
+        cp "$file" "$target_db"
+      fi
+      ;;
+
+    mysql)
+      if command -v mysql &>/dev/null; then
+        local my_url="${DATABASE_URL:-mysql://cbup:cbup_secure_2025@localhost:3306/cbup}"
+        my_url="${my_url#mysql://}"
+        local my_user="${my_url%%:*}"
+        local my_pass="${my_url#*:}"; my_pass="${my_pass%%@*}"
+        local my_host_port="${my_url#*@}"; my_host_port="${my_host_port%%/*}"
+        local my_db="${my_url##*/}"
+
+        if [[ "$file" == *.gz ]]; then
+          gunzip -c "$file" | mysql -h "${my_host_port%%:*}" -P "${my_host_port##*:}" -u "$my_user" -p"$my_pass" "$my_db" 2>&1
+        else
+          mysql -h "${my_host_port%%:*}" -P "${my_host_port##*:}" -u "$my_user" -p"$my_pass" "$my_db" < "$file" 2>&1
+        fi
+        echo -e "${GREEN}[CBUP]${NC} MySQL restore completed."
+      else
+        echo -e "${RED}[CBUP]${NC} mysql client not found."
+      fi
+      ;;
+
+    postgresql)
+      if command -v psql &>/dev/null; then
+        local pg_url="${DATABASE_URL:-postgresql://cbup:cbup_secure_2025@localhost:5432/cbup}"
+        if [[ "$file" == *.gz ]]; then
+          gunzip -c "$file" | psql "$pg_url" 2>&1
+        else
+          psql "$pg_url" < "$file" 2>&1
+        fi
+        echo -e "${GREEN}[CBUP]${NC} PostgreSQL restore completed."
+      else
+        echo -e "${RED}[CBUP]${NC} psql client not found."
+      fi
+      ;;
+
+    mongodb)
+      if command -v mongorestore &>/dev/null; then
+        local mongo_url="${DATABASE_URL:-mongodb://cbup:cbup_secure_2025@localhost:27017/cbup}"
+        if [[ "$file" == *.gz ]]; then
+          local tmp_dir
+          tmp_dir=$(mktemp -d)
+          tar -xzf "$file" -C "$tmp_dir" 2>/dev/null
+          mongorestore --uri="$mongo_url" --drop "$tmp_dir"/ 2>/dev/null
+          rm -rf "$tmp_dir"
+        else
+          mongorestore --uri="$mongo_url" --drop "$file" 2>/dev/null
+        fi
+        echo -e "${GREEN}[CBUP]${NC} MongoDB restore completed."
+      else
+        echo -e "${RED}[CBUP]${NC} mongorestore not found."
+      fi
+      ;;
+
+    mssql)
+      echo -e "${YELLOW}[CBUP]${NC} SQL Server restore: use sqlcmd or native restore command manually"
+      ;;
+
+    *)
+      echo -e "${RED}[CBUP]${NC} Unknown database provider '$DB_PROVIDER'"
+      ;;
+  esac
 
   cmd_start
-  echo -e "${GREEN}[CBUP]${NC} Database restored from $file"
+  echo -e "${GREEN}[CBUP]${NC} Restore from $file completed."
 }
 
 cmd_reset_db() {
@@ -1056,20 +1771,222 @@ cmd_reset_db() {
 
   cmd_stop
 
-  local db_file="${DATA_DIR:-/var/lib/cbup}/cbup.db"
-  if [[ -f "$INSTALL_DIR/db/custom.db" ]]; then
-    db_file="$INSTALL_DIR/db/custom.db"
-  fi
-  rm -f "$db_file"
+  case "$DB_PROVIDER" in
+    sqlite)
+      local db_file="${DATA_DIR:-/var/lib/cbup}/cbup.db"
+      if [[ -f "$INSTALL_DIR/db/custom.db" ]]; then
+        db_file="$INSTALL_DIR/db/custom.db"
+      fi
+      rm -f "$db_file"
+      ;;
+    mysql)
+      if command -v mysql &>/dev/null; then
+        local my_url="${DATABASE_URL:-mysql://cbup:cbup_secure_2025@localhost:3306/cbup}"
+        my_url="${my_url#mysql://}"
+        local my_user="${my_url%%:*}"
+        local my_pass="${my_url#*:}"; my_pass="${my_pass%%@*}"
+        local my_host_port="${my_url#*@}"; my_host_port="${my_host_port%%/*}"
+        local my_db="${my_url##*/}"
+        mysql -h "${my_host_port%%:*}" -P "${my_host_port##*:}" -u "$my_user" -p"$my_pass" -e "DROP DATABASE IF EXISTS \`$my_db\`; CREATE DATABASE \`$my_db\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;" 2>&1
+      fi
+      ;;
+    postgresql)
+      if command -v psql &>/dev/null; then
+        local pg_url="${DATABASE_URL:-postgresql://cbup:cbup_secure_2025@localhost:5432/cbup}"
+        psql "$pg_url" -c "DROP SCHEMA public CASCADE; CREATE SCHEMA public;" 2>&1
+      fi
+      ;;
+    mongodb)
+      if command -v mongosh &>/dev/null; then
+        local mongo_url="${DATABASE_URL:-mongodb://cbup:cbup_secure_2025@localhost:27017/cbup}"
+        mongosh "$mongo_url" --quiet --eval "db.dropDatabase(); print('Dropped: ' + db.getName());" 2>&1
+      fi
+      ;;
+    mssql)
+      if command -v sqlcmd &>/dev/null; then
+        echo -e "${YELLOW}[CBUP]${NC} For SQL Server, reset manually using sqlcmd"
+      fi
+      ;;
+  esac
 
   cd "$INSTALL_DIR"
   if [[ -f .env ]]; then
     set -a; source .env; set +a
   fi
-  bun run db:push 2>&1 | tail -3
+
+  if [[ "$DB_PROVIDER" != "mongodb" ]]; then
+    bun run db:push 2>&1 | tail -3
+  fi
 
   cmd_start
   echo -e "${GREEN}[CBUP]${NC} Database has been reset."
+}
+
+cmd_db_info() {
+  echo -e "${BOLD}${CYAN}═══ CBUP Database Information ═══${NC}"
+  echo ""
+
+  echo -e "  Provider:      ${BOLD}$DB_PROVIDER${NC}"
+
+  if [[ -n "$DATABASE_URL" ]]; then
+    echo -e "  Connection:    $(mask_password "$DATABASE_URL")"
+  else
+    echo -e "  Connection:    ${YELLOW}Not configured${NC}"
+  fi
+
+  echo ""
+
+  case "$DB_PROVIDER" in
+    sqlite)
+      local db_file="${DATA_DIR:-/var/lib/cbup}/cbup.db"
+      if [[ -f "$INSTALL_DIR/db/custom.db" ]]; then
+        db_file="$INSTALL_DIR/db/custom.db"
+      fi
+      if [[ -f "$db_file" ]]; then
+        local db_size
+        db_size=$(du -h "$db_file" | cut -f1)
+        echo -e "  File:          $db_file"
+        echo -e "  Size:          ${GREEN}$db_size${NC}"
+
+        if command -v sqlite3 &>/dev/null; then
+          echo ""
+          echo -e "  ${BOLD}Tables:${NC}"
+          sqlite3 "$db_file" ".tables" 2>/dev/null | tr ' ' '\n' | while read -r tbl; do
+            if [[ -n "$tbl" ]]; then
+              local count
+              count=$(sqlite3 "$db_file" "SELECT COUNT(*) FROM \"$tbl\";" 2>/dev/null || echo "?")
+              echo -e "    $tbl: ${GREEN}$count${NC} rows"
+            fi
+          done
+        fi
+      else
+        echo -e "  ${YELLOW}No SQLite database file found${NC}"
+      fi
+      ;;
+
+    mysql)
+      if command -v mysql &>/dev/null; then
+        local my_url="${DATABASE_URL:-mysql://cbup:cbup_secure_2025@localhost:3306/cbup}"
+        my_url="${my_url#mysql://}"
+        local my_user="${my_url%%:*}"
+        local my_pass="${my_url#*:}"; my_pass="${my_pass%%@*}"
+        local my_host_port="${my_url#*@}"; my_host_port="${my_host_port%%/*}"
+        local my_db="${my_url##*/}"
+
+        echo -e "  Host:          ${my_host_port%%:*}:${my_host_port##*:}"
+        echo -e "  Database:      $my_db"
+        echo -e "  User:          $my_user"
+        echo ""
+
+        # Check connectivity
+        echo -n "  Connectivity:  "
+        if mysql -h "${my_host_port%%:*}" -P "${my_host_port##*:}" -u "$my_user" -p"$my_pass" -e "SELECT 1" &>/dev/null; then
+          echo -e "${GREEN}Connected${NC}"
+        else
+          echo -e "${RED}Connection failed${NC}"
+        fi
+
+        echo ""
+        echo -e "  ${BOLD}Tables:${NC}"
+        mysql -h "${my_host_port%%:*}" -P "${my_host_port##*:}" -u "$my_user" -p"$my_pass" "$my_db" \
+          -e "SELECT table_name AS 'Table', table_rows AS 'Rows', ROUND(data_length / 1024 / 1024, 2) AS 'Size (MB)' FROM information_schema.tables WHERE table_schema = '$my_db';" 2>/dev/null \
+          || echo -e "    ${YELLOW}Could not query tables${NC}"
+
+        # Database size
+        echo ""
+        local db_size
+        db_size=$(mysql -h "${my_host_port%%:*}" -P "${my_host_port##*:}" -u "$my_user" -p"$my_pass" "$my_db" \
+          -e "SELECT ROUND(SUM(data_length + index_length) / 1024 / 1024, 2) AS 'Size (MB)' FROM information_schema.tables WHERE table_schema = '$my_db';" 2>/dev/null | tail -1 || echo "?")
+        echo -e "  Total Size:    ${GREEN}${db_size} MB${NC}"
+      else
+        echo -e "  ${YELLOW}mysql client not available${NC}"
+      fi
+      ;;
+
+    postgresql)
+      if command -v psql &>/dev/null; then
+        echo ""
+
+        echo -n "  Connectivity:  "
+        if psql "${DATABASE_URL:-postgresql://cbup:cbup_secure_2025@localhost:5432/cbup}" -c "SELECT 1" &>/dev/null; then
+          echo -e "${GREEN}Connected${NC}"
+        else
+          echo -e "${RED}Connection failed${NC}"
+        fi
+
+        echo ""
+        echo -e "  ${BOLD}Tables:${NC}"
+        psql "${DATABASE_URL:-postgresql://cbup:cbup_secure_2025@localhost:5432/cbup}" \
+          -c "SELECT schemaname||'.'||tablename AS \"Table\", n_live_tup AS \"Rows\", pg_size_pretty(pg_total_relation_size(schemaname||'.'||tablename)) AS \"Size\" FROM pg_stat_user_tables ORDER BY n_live_tup DESC;" 2>/dev/null \
+          || echo -e "    ${YELLOW}Could not query tables${NC}"
+
+        echo ""
+        local db_size
+        db_size=$(psql "${DATABASE_URL:-postgresql://cbup:cbup_secure_2025@localhost:5432/cbup}" \
+          -t -c "SELECT pg_size_pretty(pg_database_size(current_database()));" 2>/dev/null | tr -d ' ' || echo "?")
+        echo -e "  Total Size:    ${GREEN}${db_size}${NC}"
+      else
+        echo -e "  ${YELLOW}psql client not available${NC}"
+      fi
+      ;;
+
+    mongodb)
+      if command -v mongosh &>/dev/null; then
+        local mongo_url="${DATABASE_URL:-mongodb://cbup:cbup_secure_2025@localhost:27017/cbup}"
+
+        echo ""
+        echo -n "  Connectivity:  "
+        if mongosh "$mongo_url" --quiet --eval "db.runCommand({ping:1}).ok" 2>/dev/null | grep -q "1"; then
+          echo -e "${GREEN}Connected${NC}"
+        else
+          echo -e "${RED}Connection failed${NC}"
+        fi
+
+        echo ""
+        echo -e "  ${BOLD}Collections:${NC}"
+        mongosh "$mongo_url" --quiet --eval "
+          db.getCollectionNames().forEach(function(c) {
+            var count = db[c].countDocuments();
+            print('    ' + c + ': ' + count + ' docs');
+          });
+        " 2>/dev/null || echo -e "    ${YELLOW}Could not query collections${NC}"
+
+        echo ""
+        local db_size
+        db_size=$(mongosh "$mongo_url" --quiet --eval "
+          var stats = db.stats();
+          var sizeMB = (stats.dataSize / 1024 / 1024).toFixed(2);
+          print(sizeMB + ' MB');
+        " 2>/dev/null || echo "?")
+        echo -e "  Total Size:    ${GREEN}${db_size}${NC}"
+      else
+        echo -e "  ${YELLOW}mongosh not available${NC}"
+      fi
+      ;;
+
+    mssql)
+      if command -v sqlcmd &>/dev/null; then
+        echo ""
+        echo -n "  Connectivity:  "
+        if sqlcmd "${DATABASE_URL:-mssql://sa:Strong_Passw0rd_2025@localhost:1433/cbup}" -Q "SELECT 1" &>/dev/null; then
+          echo -e "${GREEN}Connected${NC}"
+        else
+          echo -e "${RED}Connection failed${NC}"
+        fi
+        echo ""
+        echo -e "  ${BOLD}Tables:${NC}"
+        echo -e "    Use sqlcmd to query tables manually"
+      else
+        echo -e "  ${YELLOW}sqlcmd not available${NC}"
+      fi
+      ;;
+
+    *)
+      echo -e "  ${YELLOW}Unknown database provider${NC}"
+      ;;
+  esac
+
+  echo ""
 }
 
 cmd_shell() {
@@ -1112,17 +2029,83 @@ cmd_doctor() {
     ((errors++))
   fi
 
-  # Check database
-  echo -n "  Database:     "
-  local db_file="${DATA_DIR:-/var/lib/cbup}/cbup.db"
-  if [[ ! -f "$db_file" ]] && [[ -f "$INSTALL_DIR/db/custom.db" ]]; then
-    db_file="$INSTALL_DIR/db/custom.db"
-  fi
-  if [[ -f "$db_file" ]]; then
-    echo -e "${GREEN}OK ($(du -h "$db_file" | cut -f1))${NC}"
-  else
-    echo -e "${RED}Missing${NC}"
-    ((errors++))
+  # Database provider
+  echo -n "  DB Provider:  "
+  echo -e "${BOLD}${DB_PROVIDER}${NC}"
+
+  # Check database connectivity
+  echo -n "  DB Connect:   "
+  case "$DB_PROVIDER" in
+    sqlite)
+      local db_file="${DATA_DIR:-/var/lib/cbup}/cbup.db"
+      if [[ ! -f "$db_file" ]] && [[ -f "$INSTALL_DIR/db/custom.db" ]]; then
+        db_file="$INSTALL_DIR/db/custom.db"
+      fi
+      if [[ -f "$db_file" ]]; then
+        echo -e "${GREEN}OK ($(du -h "$db_file" | cut -f1))${NC}"
+      else
+        echo -e "${RED}Missing${NC}"
+        ((errors++))
+      fi
+      ;;
+    mysql)
+      if command -v mysql &>/dev/null; then
+        local my_url="${DATABASE_URL:-mysql://cbup:cbup_secure_2025@localhost:3306/cbup}"
+        my_url="${my_url#mysql://}"
+        local my_user="${my_url%%:*}"
+        local my_pass="${my_url#*:}"; my_pass="${my_pass%%@*}"
+        local my_host_port="${my_url#*@}"; my_host_port="${my_host_port%%/*}"
+        local my_db="${my_url##*/}"
+        if mysql -h "${my_host_port%%:*}" -P "${my_host_port##*:}" -u "$my_user" -p"$my_pass" -e "SELECT 1" &>/dev/null; then
+          echo -e "${GREEN}Connected${NC}"
+        else
+          echo -e "${RED}Connection failed${NC}"
+          ((errors++))
+        fi
+      else
+        echo -e "${RED}mysql client not found${NC}"
+        ((errors++))
+      fi
+      ;;
+    postgresql)
+      if command -v psql &>/dev/null; then
+        if psql "${DATABASE_URL:-postgresql://cbup:cbup_secure_2025@localhost:5432/cbup}" -c "SELECT 1" &>/dev/null; then
+          echo -e "${GREEN}Connected${NC}"
+        else
+          echo -e "${RED}Connection failed${NC}"
+          ((errors++))
+        fi
+      else
+        echo -e "${RED}psql client not found${NC}"
+        ((errors++))
+      fi
+      ;;
+    mongodb)
+      if command -v mongosh &>/dev/null; then
+        if mongosh "${DATABASE_URL:-mongodb://cbup:cbup_secure_2025@localhost:27017/cbup}" --quiet --eval "db.runCommand({ping:1}).ok" 2>/dev/null | grep -q "1"; then
+          echo -e "${GREEN}Connected${NC}"
+        else
+          echo -e "${RED}Connection failed${NC}"
+          ((errors++))
+        fi
+      else
+        echo -e "${RED}mongosh not found${NC}"
+        ((errors++))
+      fi
+      ;;
+    mssql)
+      if command -v sqlcmd &>/dev/null; then
+        echo -e "${YELLOW}sqlcmd available — manual connectivity check needed${NC}"
+      else
+        echo -e "${RED}sqlcmd not found${NC}"
+        ((errors++))
+      fi
+      ;;
+  esac
+
+  # Connection string (password masked)
+  if [[ -n "$DATABASE_URL" ]]; then
+    echo -e "  Connection:    $(mask_password "$DATABASE_URL")"
   fi
 
   # Check port — use ss, netstat, or /proc
@@ -1227,10 +2210,12 @@ cmd_uninstall() {
 
   echo -e "${CYAN}[CBUP]${NC} Stopping service..."
 
-  # Docker
-  if [[ -f "$INSTALL_DIR/docker-compose.yml" ]] && command -v docker &>/dev/null; then
-    cd "$INSTALL_DIR" && docker compose down -v 2>/dev/null || true
-  fi
+  # Docker — try all compose files
+  for f in docker-compose.mysql.yml docker-compose.postgresql.yml docker-compose.mongodb.yml docker-compose.mssql.yml docker-compose.yml; do
+    if [[ -f "$INSTALL_DIR/$f" ]] && command -v docker &>/dev/null; then
+      cd "$INSTALL_DIR" && docker compose -f "$f" down -v 2>/dev/null || true
+    fi
+  done
 
   # Systemd
   if $HAS_SYSTEMD; then
@@ -1258,8 +2243,11 @@ cmd_uninstall() {
   rm -f /etc/profile.d/cbup.sh 2>/dev/null || true
 
   echo -e "${GREEN}${BOLD}[CBUP]${NC} Cyber Brief Unified Platform has been completely removed."
-  echo -e "${YELLOW}[CBUP]${NC} Database at $DATA_DIR was preserved. Remove manually if desired:"
-  echo -e "${YELLOW}[CBUP]${NC}   rm -rf $DATA_DIR"
+  echo -e "${YELLOW}[CBUP]${NC} Database data was preserved if it was on a separate server."
+  if [[ "$DB_PROVIDER" == "sqlite" ]]; then
+    echo -e "${YELLOW}[CBUP]${NC} SQLite database at $DATA_DIR was preserved. Remove manually if desired:"
+    echo -e "${YELLOW}[CBUP]${NC}   rm -rf $DATA_DIR"
+  fi
 }
 
 case "${1:-}" in
@@ -1272,6 +2260,7 @@ case "${1:-}" in
   backup)   cmd_backup ;;
   restore)  cmd_restore "${2:-}" ;;
   reset-db) cmd_reset_db ;;
+  db-info)  cmd_db_info ;;
   shell)    cmd_shell ;;
   doctor)   cmd_doctor ;;
   uninstall) cmd_uninstall ;;
@@ -1299,6 +2288,12 @@ uninstall() {
       rm -f "/etc/systemd/system/${SERVICE_NAME}.service"
       systemctl daemon-reload 2>/dev/null
     fi
+    # Stop Docker containers for all compose files
+    for f in docker-compose.mysql.yml docker-compose.postgresql.yml docker-compose.mongodb.yml docker-compose.mssql.yml docker-compose.yml; do
+      if [[ -f "$INSTALL_DIR/$f" ]] && command -v docker &>/dev/null; then
+        cd "$INSTALL_DIR" && docker compose -f "$f" down -v 2>/dev/null || true
+      fi
+    done
     rm -rf "$INSTALL_DIR" "$LOG_DIR"
     rm -f /usr/local/bin/cbup "$HOME/.local/bin/cbup"
     rm -f /etc/profile.d/cbup.sh
@@ -1585,8 +2580,14 @@ print_summary() {
   echo -e "  ${BOLD}Cyber Brief Unified Platform${NC} is now running on:"
   echo -e "  ${CYAN}  http://localhost:${PORT}${NC}"
   echo ""
+  echo -e "  ${BOLD}Database:${NC}    $DB_PROVIDER"
+
+  if [[ "$DB_PROVIDER" != "sqlite" ]]; then
+    echo -e "  ${BOLD}DB Connection:${NC} $(echo "$DATABASE_URL" | sed -E 's/:([^:@]{1,})@/:****@/')"
+  fi
 
   if $IS_WSL; then
+    echo ""
     echo -e "  ${BOLD}WSL Access:${NC}"
     echo -e "    From Windows browser: http://localhost:${PORT}"
     echo -e "    If not accessible: check WSL network settings"
@@ -1599,6 +2600,7 @@ print_summary() {
   echo -e "    cbup restart    — Restart service"
   echo -e "    cbup update     — Update to latest version"
   echo -e "    cbup backup     — Backup database"
+  echo -e "    cbup db-info    — Show database details"
   echo -e "    cbup doctor     — Run diagnostics"
   echo -e "    cbup --help     — All commands"
   echo ""
@@ -1606,20 +2608,38 @@ print_summary() {
   if ! $DEV_MODE && ! $USE_DOCKER; then
     echo -e "  ${BOLD}Files:${NC}"
     echo -e "    App:        $INSTALL_DIR"
-    echo -e "    Database:   $DATA_DIR/cbup.db"
+    if [[ "$DB_PROVIDER" == "sqlite" ]]; then
+      echo -e "    Database:   $DATA_DIR/cbup.db"
+    fi
     echo -e "    Logs:       $LOG_DIR/"
     echo -e "    Backups:    $BACKUP_DIR/"
     echo ""
   elif $DEV_MODE; then
     echo -e "  ${BOLD}Files:${NC}"
     echo -e "    App:        $INSTALL_DIR"
-    echo -e "    Database:   $INSTALL_DIR/db/custom.db"
+    if [[ "$DB_PROVIDER" == "sqlite" ]]; then
+      echo -e "    Database:   $INSTALL_DIR/db/custom.db"
+    fi
     echo ""
   fi
 
   if $USE_DOCKER; then
+    local compose_file
+    compose_file=$(get_compose_file)
     echo -e "  ${BOLD}Docker:${NC}"
-    echo -e "    cd $INSTALL_DIR && docker compose logs -f"
+    echo -e "    cd $INSTALL_DIR && docker compose -f $compose_file logs -f"
+    echo ""
+    case "$DB_PROVIDER" in
+      mysql)
+        echo -e "  ${BOLD}Database Admin:${NC} phpMyAdmin (check docker-compose.mysql.yml for port)"
+        ;;
+      postgresql)
+        echo -e "  ${BOLD}Database Admin:${NC} pgAdmin (check docker-compose.postgresql.yml for port)"
+        ;;
+      mongodb)
+        echo -e "  ${BOLD}Database Admin:${NC} mongo-express (check docker-compose.mongodb.yml for port)"
+        ;;
+    esac
     echo ""
   elif $HAS_SYSTEMD && ! $DEV_MODE; then
     echo -e "  ${BOLD}Service:${NC}"
@@ -1653,7 +2673,18 @@ parse_args() {
       --uninstall)    UNINSTALL=true; shift ;;
       --test)         RUN_TESTS=true; shift ;;
       --branch)       BRANCH="$2"; shift 2 ;;
-      --help|-h)      echo "Usage: $0 [--docker] [--dev] [--port N] [--yes] [--uninstall] [--test] [--branch X]"; exit 0 ;;
+      --db)
+        case "${2:-}" in
+          sqlite|mysql|postgresql|mongodb|mssql)
+            DB_PROVIDER="$2"
+            shift 2
+            ;;
+          *)
+            die "Invalid database provider: ${2:-}. Use: sqlite, mysql, postgresql, mongodb, or mssql"
+            ;;
+        esac
+        ;;
+      --help|-h)      echo "Usage: $0 [--docker] [--dev] [--port N] [--db <sqlite|mysql|postgresql|mongodb|mssql>] [--yes] [--uninstall] [--test] [--branch X]"; exit 0 ;;
       *)              die "Unknown option: $1" ;;
     esac
   done
@@ -1684,34 +2715,40 @@ main() {
   check_os
   check_arch
 
+  # Select database before proceeding
+  select_database
+
   if $USE_DOCKER; then
-    info "Install mode: Docker"
+    info "Install mode: Docker (database: $DB_PROVIDER)"
     IS_NEW=true
     check_existing || IS_NEW=false
     # Clone/copy repo first so Dockerfile and docker-compose.yml are available
     clone_or_copy_repo $([[ "$IS_NEW" == "false" ]] && echo true || echo false)
+    configure_database
     install_docker
     install_cli
   elif $DEV_MODE; then
-    info "Install mode: Development (no systemd, no root needed)"
+    info "Install mode: Development (database: $DB_PROVIDER)"
     IS_NEW=true
     check_existing || IS_NEW=false
     install_prerequisites
     install_bun
     clone_or_copy_repo $([[ "$IS_NEW" == "false" ]] && echo true || echo false)
     install_dependencies
+    install_db_client
     setup_database
     build_application
     start_service
     install_cli
   else
-    info "Install mode: Bare Metal (systemd)"
+    info "Install mode: Bare Metal (database: $DB_PROVIDER)"
     IS_NEW=true
     check_existing || IS_NEW=false
     install_prerequisites
     install_bun
     clone_or_copy_repo $([[ "$IS_NEW" == "false" ]] && echo true || echo false)
     install_dependencies
+    install_db_client
     setup_database
     build_application
     setup_systemd

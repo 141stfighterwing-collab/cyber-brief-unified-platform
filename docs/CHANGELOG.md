@@ -6,6 +6,66 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ---
 
+## [0.3.0] - 2025-04-03
+
+### Added
+
+#### Multi-Database Support (Major Feature)
+- **5 database backends** now supported: SQLite, MySQL, PostgreSQL, MongoDB, and SQL Server
+- New unified database provider layer (`src/lib/db-provider.ts`) with automatic routing based on `DATABASE_PROVIDER` environment variable
+- Prisma-compatible adapter for all SQL databases (SQLite, MySQL, PostgreSQL)
+- Native MongoDB driver adapter (`src/lib/mongodb.ts`) with full CRUD operations for all 4 collections
+- MySQL-specific Prisma schema (`prisma/schema.mysql.prisma`) with proper `@db.VarChar`, `@db.DateTime`, `@db.Text` annotations
+- PostgreSQL-specific Prisma schema (`prisma/schema.postgresql.prisma`) with `@db.VarChar`, `@db.Timestamp` annotations
+- Zero code changes required in API routes — all 6 endpoints work transparently with any database provider
+- New `/api/db-status` endpoint returning provider name, connection status, table names, and record counts
+
+#### Docker Multi-Database Deployment
+- `docker-compose.mysql.yml` — MySQL 8.0 + phpMyAdmin (port 8081) with healthchecks and automatic database provisioning
+- `docker-compose.postgresql.yml` — PostgreSQL 16-alpine + pgAdmin (port 8082) with healthchecks and connection pooling
+- `docker-compose.mongodb.yml` — MongoDB 7 + Mongo Express (port 8083) with authentication and index creation
+- `docker-compose.mssql.yml` — SQL Server 2022 Express with sqlcmd healthcheck validation
+- Default credentials pre-configured for all database containers (documented in `.env.example`)
+- Each database compose file includes a management UI (phpMyAdmin, pgAdmin, Mongo Express) for easy administration
+- Updated Dockerfile with `DATABASE_URL` build argument and `DATABASE_PROVIDER` runtime environment variable
+
+#### Install Script Enhancements
+- Interactive database selection menu during installation (`install.sh`)
+- New `--db <provider>` flag for non-interactive database selection (e.g., `./install.sh --docker --db mysql`)
+- Automatic database provisioning: creates databases, users, grants, and tables for each provider
+- Automatic schema selection: copies the correct Prisma schema file based on chosen database
+- Default credentials configured for all database backends
+- New `cbup db-info` CLI command showing provider, connection details, table list, record counts, and database size
+- Updated `cbup doctor` with database connectivity checks per provider type
+- Updated `cbup backup` with provider-specific dump tools (mysqldump, pg_dump, mongodump, sqlcmd)
+- Updated `cbup restore` with provider-specific restore tools
+- Updated `cbup update` to skip `db:push` for MongoDB deployments
+- Install script grew from 1,727 to 2,763 lines with full multi-database orchestration
+
+#### Screenshots & Visual Validation
+- Playwright-based screenshot capture system (`scripts/capture-screenshots.ts`)
+- 16 full-page screenshots covering all platform views at 2x resolution (2880×1800)
+- Landing page (hero, features, pricing, sample brief, testimonials)
+- Authentication (login, signup with tier selection)
+- Dashboard (stats, recent alerts, quick actions)
+- Alerts view (18 cybersecurity alerts with severity filtering)
+- Briefs view (full daily intelligence brief)
+- Monitoring view (Recharts dashboards)
+- Workflow view (Kanban board with task management)
+- API endpoint responses (db-status, alerts, stats, briefs)
+
+#### Configuration
+- New `.env.example` file with templates for all 5 database providers
+- Environment variables: `DATABASE_PROVIDER` (sqlite|mysql|postgresql|mongodb|mssql) and `DATABASE_URL`
+
+### Changed
+- Version bumped from 0.2.0 to 0.3.0
+- `src/lib/db.ts` now delegates to `db-provider.ts` (backward-compatible import path preserved)
+- Install script `--help` updated with database options
+- Docker compose default file explicitly labeled as SQLite configuration
+
+---
+
 ## [0.2.0] - 2025-01-15
 
 ### Added
@@ -197,7 +257,7 @@ Security patches will always be released as PATCH version increments (e.g., `0.2
 
 ## Release Roadmap
 
-### v0.3.0 (Planned)
+### v0.3.1 (Planned)
 - Password hashing with bcrypt
 - Email notification system
 - User session management via NextAuth.js
@@ -217,11 +277,11 @@ Security patches will always be released as PATCH version increments (e.g., `0.2
 - Custom alert rules and filters
 
 ### v1.0.0 (Planned)
-- PostgreSQL and MySQL support
 - WebSocket real-time alert streaming
 - API key management
 - Rate limiting
 - Comprehensive API documentation (OpenAPI/Swagger)
+- Advanced RBAC with organization isolation
 
 ### v2.0.0 (Planned)
 - SIEM integration (Splunk, Elastic, Sentinel)
