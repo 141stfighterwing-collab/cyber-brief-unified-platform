@@ -1,0 +1,75 @@
+# Dependencies
+node_modules
+.pnp
+.pnp.js
+
+# Build output
+.next/
+out/
+dist/
+build/
+
+# Docker
+.docker/
+
+# Environment files
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Database
+*.db
+*.db-journal
+db/
+
+# Logs
+*.log
+logs/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+dev.log
+server.log
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Git
+.git/
+.gitignore
+
+# Documentation (not needed in image)
+docs/
+*.md
+LICENSE
+
+# Download / temporary
+download/
+upload/
+examples/
+skills/
+mini-services/
+
+# Testing
+coverage/
+.nyc_output/
+
+# Docker Compose override (not needed for build)
+docker-compose.dev.yml
+Dockerfile.dev
+
+# Caddyfile (used in bare-metal only)
+Caddyfile
+
+# Worklog
+worklog.md

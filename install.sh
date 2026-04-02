@@ -215,7 +215,7 @@ check_os() {
       ;;
   esac
 
-  $IS_WSL && info "WSL environment detected — systemd support: $HAS_SYSTEMD"
+  if $IS_WSL; then info "WSL environment detected — systemd support: $HAS_SYSTEMD"; fi
 }
 
 check_arch() {
@@ -291,59 +291,22 @@ install_docker() {
     ok "Docker already installed: $(docker --version)"
   fi
 
-  # Create Dockerfile
+  # Use the repo's Dockerfile and docker-compose.yml
   info "Preparing Docker build files..."
-  
-  mkdir -p "$INSTALL_DIR"
-  cat > "$INSTALL_DIR/Dockerfile" << 'DOCKERFILE'
-FROM node:20-slim AS base
-RUN apt-get update && apt-get install -y openssl unzip ca-certificates && rm -rf /var/lib/apt/lists/*
-WORKDIR /app
 
-# Install bun
-RUN npm install -g bun@1.2.2 || npm install -g bun
-
-# Dependencies
-COPY package.json bun.lock ./
-RUN bun install --frozen-lockfile 2>/dev/null || bun install
-
-# Build
-COPY . .
-RUN bun run build
-
-# Production
-FROM node:20-slim AS runner
-RUN apt-get update && apt-get install -y openssl curl ca-certificates && rm -rf /var/lib/apt/lists/*
-WORKDIR /app
-ENV NODE_ENV=production
-ENV PORT=3000
-ENV DATABASE_URL="file:/app/data/cbup.db"
-
-RUN addgroup --system --gid 1001 cbup 2>/dev/null || groupadd -r cbup -g 1001
-RUN adduser --system --uid 1001 cbup 2>/dev/null || useradd -r -u 1001 cbup
-
-COPY --from=base /app/.next/standalone ./
-COPY --from=base /app/.next/static ./.next/static
-COPY --from=base /app/public ./public
-
-RUN mkdir -p /app/data && chown -R cbup:cbup /app
-USER cbup
-
-EXPOSE 3000
-
-HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-  CMD curl -f http://localhost:3000/ || exit 1
-
-CMD ["node", "server.js"]
-DOCKERFILE
-
-  # Create docker-compose.yml
-  cat > "$INSTALL_DIR/docker-compose.yml" << YML
-version: "3.8"
-
+  # Ensure app files are in place first
+  if [[ ! -f "$INSTALL_DIR/Dockerfile" ]]; then
+    warn "Dockerfile not found in $INSTALL_DIR — copying from repo"
+  fi
+  if [[ ! -f "$INSTALL_DIR/docker-compose.yml" ]]; then
+    warn "docker-compose.yml not found in $INSTALL_DIR — the installer expects these files in the repo"
+    info "Generating docker-compose.yml for compatibility..."
+    cat > "$INSTALL_DIR/docker-compose.yml" << YML
 services:
   cbup:
-    build: .
+    build:
+      context: .
+      dockerfile: Dockerfile
     container_name: cyber-brief-up
     restart: unless-stopped
     ports:
@@ -354,26 +317,70 @@ services:
     environment:
       - DATABASE_URL=file:/app/data/cbup.db
       - NODE_ENV=production
+      - PORT=3000
+      - HOSTNAME=0.0.0.0
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:3000/"]
       interval: 30s
       timeout: 5s
       retries: 3
-      start_period: 10s
+      start_period: 15s
+      start_interval: 5s
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '1.0'
+        reservations:
+          memory: 128M
+          cpus: '0.25'
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
 
 volumes:
   cbup-data:
     driver: local
+    name: cbup-data
   cbup-logs:
     driver: local
+    name: cbup-logs
 YML
+  fi
 
   # Build and start
   cd "$INSTALL_DIR"
   info "Building CBUP Docker image (this may take a few minutes)..."
-  docker compose build --quiet 2>&1 | tail -3 || docker compose build 2>&1 | tail -5
+  info "Using multi-stage Dockerfile with Bun runtime and Prisma..."
+  docker compose build 2>&1 | tail -10
+  info "Starting CBUP container..."
   docker compose up -d 2>&1
-  
+
+  # Wait for health check
+  info "Waiting for container to become healthy..."
+  local retries=0
+  while [[ $retries -lt 15 ]]; do
+    if docker ps --format '{{.Status}}' --filter name=cyber-brief-up 2>/dev/null | grep -q "healthy"; then
+      ok "CBUP container is healthy!"
+      break
+    fi
+    if docker ps --filter name=cyber-brief-up --format '{{.Status}}' 2>/dev/null | grep -qi "unhealthy\|exited"; then
+      error "Container health check failed. Check logs:"
+      error "  docker logs cyber-brief-up"
+      docker logs cyber-brief-up 2>&1 | tail -20
+      return 1
+    fi
+    sleep 2
+    ((retries++))
+  done
+
+  if [[ $retries -eq 15 ]]; then
+    warn "Health check not yet passing (container may still be starting)"
+    warn "Check status with: docker compose ps"
+  fi
+
   ok "CBUP is running in Docker on port $PORT"
 }
 
@@ -1307,9 +1314,9 @@ run_tests() {
   local failed=0
   local skipped=0
 
-  test_pass() { ((passed++)); echo -e "  ${GREEN}✓ PASS${NC}: $1"; }
-  test_fail() { ((failed++)); echo -e "  ${RED}✗ FAIL${NC}: $1 — $2"; }
-  test_skip() { ((skipped++)); echo -e "  ${YELLOW}⊘ SKIP${NC}: $1 — $2"; }
+  test_pass() { passed=$((passed + 1)); echo -e "  ${GREEN}✓ PASS${NC}: $1"; }
+  test_fail() { failed=$((failed + 1)); echo -e "  ${RED}✗ FAIL${NC}: $1 — $2"; }
+  test_skip() { skipped=$((skipped + 1)); echo -e "  ${YELLOW}⊘ SKIP${NC}: $1 — $2"; }
 
   echo ""
   echo -e "${BOLD}Test Suite: OS Compatibility${NC}"
@@ -1679,7 +1686,10 @@ main() {
 
   if $USE_DOCKER; then
     info "Install mode: Docker"
-    check_existing || true
+    IS_NEW=true
+    check_existing || IS_NEW=false
+    # Clone/copy repo first so Dockerfile and docker-compose.yml are available
+    clone_or_copy_repo $([[ "$IS_NEW" == "false" ]] && echo true || echo false)
     install_docker
     install_cli
   elif $DEV_MODE; then

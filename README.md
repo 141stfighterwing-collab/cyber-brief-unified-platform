@@ -270,55 +270,97 @@ After installation, use the `cbup` command to manage your instance:
 
 ## Docker Deployment
 
+CBUP ships with production-ready Docker files for easy containerized deployment.
+
+### Quick Start (Docker Compose)
+
+```bash
+# Clone and start
+git clone https://github.com/141stfighterwing-collab/cyber-brief-unified-platform.git
+cd cyber-brief-unified-platform
+
+docker compose up -d
+```
+
+The app will be available at `http://localhost:3000`.
+
 ### Using the Installer
 
 ```bash
 sudo ./install.sh --docker
 ```
 
+The installer will: install Docker if needed, clone the repo, build the image, and start the container with health checks.
+
+### Custom Port
+
+```bash
+PORT=8080 docker compose up -d
+```
+
 ### Manual Docker Build
 
 ```bash
-# Clone and build
-git clone https://github.com/141stfighterwing-collab/cyber-brief-unified-platform.git
-cd cyber-brief-unified-platform
-
-docker build -t cbup .
-
+docker build -t cbup:latest .
 docker run -d \
   --name cyber-brief-up \
   --restart unless-stopped \
   -p 3000:3000 \
   -v cbup-data:/app/data \
   -e DATABASE_URL="file:/app/data/cbup.db" \
-  cbup
+  cbup:latest
 ```
 
-### Docker Compose
+### Development Mode (Docker)
 
-```yaml
-version: "3.8"
-services:
-  cbup:
-    build: .
-    container_name: cyber-brief-up
-    restart: unless-stopped
-    ports:
-      - "3000:3000"
-    volumes:
-      - cbup-data:/app/data
-    environment:
-      - DATABASE_URL=file:/app/data/cbup.db
-      - NODE_ENV=production
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:3000/"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-
-volumes:
-  cbup-data:
+```bash
+docker compose -f docker-compose.dev.yml up --build
 ```
+
+### Docker Management
+
+```bash
+# View logs
+docker compose logs -f
+
+# Check container health
+docker compose ps
+
+# Rebuild after code changes
+docker compose up -d --build
+
+# Stop (preserve data)
+docker compose down
+
+# Full reset (remove database too)
+docker compose down -v
+```
+
+### Docker Architecture
+
+The `Dockerfile` uses a **3-stage multi-stage build**:
+
+| Stage | Base Image | Purpose |
+|-------|-----------|---------|
+| `deps` | `node:20-slim` | Installs Bun and caches dependencies |
+| `builder` | `deps` | Copies source, generates Prisma client, builds Next.js standalone |
+| `runner` | `node:20-slim` | Minimal production image with tini init, non-root user, health check |
+
+### Resource Limits
+
+The `docker-compose.yml` includes sensible defaults:
+
+| Resource | Limit | Reservation |
+|----------|-------|-------------|
+| Memory | 512 MB | 128 MB |
+| CPU | 1.0 cores | 0.25 cores |
+
+### Named Volumes
+
+| Volume | Mount Path | Contents |
+|--------|-----------|----------|
+| `cbup-data` | `/app/data` | SQLite database file |
+| `cbup-logs` | `/app/logs` | Application logs |
 
 ---
 
@@ -400,6 +442,11 @@ See [docs/DATABASES.md](docs/DATABASES.md) for full database documentation inclu
 
 ```
 cyber-brief-unified-platform/
+├── Dockerfile                    # Production multi-stage Docker build
+├── Dockerfile.dev                # Development Docker build
+├── docker-compose.yml            # Production Docker Compose
+├── docker-compose.dev.yml        # Development Docker Compose
+├── .dockerignore                 # Docker build exclusions
 ├── install.sh                    # 1-click installer script
 ├── README.md                     # This file
 ├── LICENSE                       # MIT License
