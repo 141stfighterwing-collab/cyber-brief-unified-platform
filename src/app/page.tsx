@@ -15,6 +15,8 @@ import { BriefView } from '@/components/briefs/brief-view'
 import { MonitoringView } from '@/components/monitoring/monitoring-view'
 import { WorkflowView } from '@/components/workflow/workflow-view'
 import { AgentsView } from '@/components/agents/agents-view'
+import { SuperAdminView } from '@/components/admin/super-admin-view'
+import { ReportsView } from '@/components/reports/reports-view'
 
 export default function Home() {
   const { currentView, isAuthenticated } = useAppStore()
@@ -80,6 +82,18 @@ export default function Home() {
         {currentView === 'workflow' && (
           <div className="container mx-auto px-4 lg:px-6 py-6">
             <WorkflowView />
+          </div>
+        )}
+
+        {currentView === 'admin' && (
+          <div className="container mx-auto px-4 lg:px-6 py-6">
+            <SuperAdminView />
+          </div>
+        )}
+
+        {currentView === 'reports' && (
+          <div className="container mx-auto px-4 lg:px-6 py-6">
+            <ReportsView />
           </div>
         )}
       </main>

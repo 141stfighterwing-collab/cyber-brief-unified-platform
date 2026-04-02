@@ -1,8 +1,9 @@
 import { NextResponse } from 'next/server'
 import { db } from '@/lib/db'
+import wsHub from '@/lib/websocket'
 
 // POST /api/agents/heartbeat
-// Receives telemetry data from agent
+// Receives telemetry data from agent and broadcasts via WebSocket
 export async function POST(request: Request) {
   try {
     const body = await request.json()
@@ -74,6 +75,33 @@ export async function POST(request: Request) {
         status,
       },
     })
+
+    // Broadcast telemetry via WebSocket hub (non-blocking)
+    try {
+      wsHub.broadcastTelemetry({
+        agentId: agent.agentId,
+        hostname: agent.hostname,
+        tenantId: agent.tenantId,
+        status,
+        telemetry: {
+          cpuPercent: telemetry.cpuPercent,
+          memPercent: telemetry.memPercent,
+          memUsedMb: telemetry.memUsedMb,
+          memTotalMb: telemetry.memTotalMb,
+          diskReadBps: telemetry.diskReadBps,
+          diskWriteBps: telemetry.diskWriteBps,
+          netInBps: telemetry.netInBps,
+          netOutBps: telemetry.netOutBps,
+          diskFreeGb: telemetry.diskFreeGb,
+          diskTotalGb: telemetry.diskTotalGb,
+          activeTcp: telemetry.activeTcp,
+          uptime: telemetry.uptime,
+        },
+      })
+    } catch (wsError) {
+      // Log WebSocket broadcast errors but don't fail the heartbeat
+      console.error('[Heartbeat] WebSocket broadcast error:', wsError)
+    }
 
     return NextResponse.json({ success: true })
   } catch (error) {

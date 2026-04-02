@@ -9,6 +9,8 @@ export type AppView =
   | 'monitoring'
   | 'workflow'
   | 'agents'
+  | 'admin'
+  | 'reports'
 
 export interface User {
   id: string
@@ -16,6 +18,7 @@ export interface User {
   name: string | null
   company: string | null
   tier: string
+  role: string // 'user' | 'admin' | 'super_admin'
 }
 
 export interface AppState {
@@ -37,6 +40,18 @@ export interface AppState {
   // Task management
   tasksUpdated: number
   triggerTasksUpdate: () => void
+
+  // Tenant management
+  currentTenantId: string | null
+  setCurrentTenantId: (id: string | null) => void
+
+  // Live data
+  liveTelemetry: Record<string, any>
+  setLiveTelemetry: (data: Record<string, any>) => void
+
+  // WebSocket connection state
+  wsConnected: boolean
+  setWsConnected: (connected: boolean) => void
 }
 
 export const useAppStore = create<AppState>((set, get) => ({
@@ -65,4 +80,16 @@ export const useAppStore = create<AppState>((set, get) => ({
   // Task management
   tasksUpdated: 0,
   triggerTasksUpdate: () => set((state) => ({ tasksUpdated: state.tasksUpdated + 1 })),
+
+  // Tenant management
+  currentTenantId: null,
+  setCurrentTenantId: (id) => set({ currentTenantId: id }),
+
+  // Live data
+  liveTelemetry: {},
+  setLiveTelemetry: (data) => set({ liveTelemetry: data }),
+
+  // WebSocket connection state
+  wsConnected: false,
+  setWsConnected: (connected) => set({ wsConnected: connected }),
 }))

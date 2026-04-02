@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -39,6 +39,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip'
+import { useAppStore } from '@/lib/store'
 import {
   Monitor,
   Cpu,
@@ -62,6 +63,7 @@ import {
   Network,
   Clock,
   Info,
+  Building2,
 } from 'lucide-react'
 import {
   LineChart,
@@ -802,20 +804,15 @@ interface AgentDetailPanelProps {
 
 function AgentDetailPanel({ agent, onCommand, onClose }: AgentDetailPanelProps) {
   const [telemetryHours, setTelemetryHours] = useState(1)
-  const [telemetry, setTelemetry] = useState<TelemetryPoint[]>([])
-  const [scans, setScans] = useState<EDRScan[]>([])
-  const [commands, setCommands] = useState<AgentCommand[]>([])
   const [cmdFilter, setCmdFilter] = useState<string>('all')
 
-  useEffect(() => {
-    setTelemetry(generateTelemetry(telemetryHours))
-    setScans(generateScans())
-    setCommands(generateCommands())
-  }, [telemetryHours, agent.id])
+  const telemetryData = useMemo(() => generateTelemetry(telemetryHours), [telemetryHours])
+  const scanData = useMemo(() => generateScans(), [])
+  const commandData = useMemo(() => generateCommands(), [])
 
   const filteredCommands = cmdFilter === 'all'
-    ? commands
-    : commands.filter((c) => c.status === cmdFilter)
+    ? commandData
+    : commandData.filter((c) => c.status === cmdFilter)
 
   const systemInfoRows = [
     { label: 'Hostname', value: agent.hostname },
@@ -922,7 +919,7 @@ function AgentDetailPanel({ agent, onCommand, onClose }: AgentDetailPanelProps) 
             <CardContent className="p-4 pt-0">
               <div className="h-[200px]">
                 <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={telemetry}>
+                  <LineChart data={telemetryData}>
                     <CartesianGrid strokeDasharray="3 3" stroke="oklch(0.28 0.015 155)" />
                     <XAxis dataKey="time" tick={chartTickStyle} axisLine={false} tickLine={false} />
                     <YAxis tick={chartTickStyle} axisLine={false} tickLine={false} domain={[0, 100]} />
@@ -942,7 +939,7 @@ function AgentDetailPanel({ agent, onCommand, onClose }: AgentDetailPanelProps) 
             <CardContent className="p-4 pt-0">
               <div className="h-[200px]">
                 <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={telemetry}>
+                  <AreaChart data={telemetryData}>
                     <CartesianGrid strokeDasharray="3 3" stroke="oklch(0.28 0.015 155)" />
                     <XAxis dataKey="time" tick={chartTickStyle} axisLine={false} tickLine={false} />
                     <YAxis tick={chartTickStyle} axisLine={false} tickLine={false} domain={[0, 100]} />
@@ -968,7 +965,7 @@ function AgentDetailPanel({ agent, onCommand, onClose }: AgentDetailPanelProps) 
             <CardContent className="p-4 pt-0">
               <div className="h-[200px]">
                 <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={telemetry}>
+                  <BarChart data={telemetryData}>
                     <CartesianGrid strokeDasharray="3 3" stroke="oklch(0.28 0.015 155)" />
                     <XAxis dataKey="time" tick={chartTickStyle} axisLine={false} tickLine={false} />
                     <YAxis tick={chartTickStyle} axisLine={false} tickLine={false} />
@@ -990,7 +987,7 @@ function AgentDetailPanel({ agent, onCommand, onClose }: AgentDetailPanelProps) 
             </CardHeader>
             <CardContent className="p-4 pt-0">
               <div className="space-y-3">
-                {scans.map((scan) => (
+                {scanData.map((scan) => (
                   <div key={scan.id} className="rounded-lg border border-border/50 p-3 space-y-2">
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
@@ -1094,12 +1091,35 @@ function AgentDetailPanel({ agent, onCommand, onClose }: AgentDetailPanelProps) 
 // ─── Main Agents View ────────────────────────────────────────────────────────
 
 export function AgentsView() {
+  const { user, wsConnected, currentTenantId } = useAppStore()
   const [agents, setAgents] = useState<Agent[]>([])
   const [loading, setLoading] = useState(true)
   const [selectedAgent, setSelectedAgent] = useState<Agent | null>(null)
   const [c2Agent, setC2Agent] = useState<Agent | null>(null)
   const [c2Open, setC2Open] = useState(false)
   const [autoRefresh, setAutoRefresh] = useState(true)
+  const [tenantFilter, setTenantFilter] = useState<string>('all')
+  const [tenants, setTenants] = useState<{id: string, name: string}[]>([])
+
+  const isSuperAdmin = user?.role === 'super_admin'
+
+  // Fetch tenants list for super_admin filter
+  useEffect(() => {
+    if (isSuperAdmin && tenants.length === 0) {
+      fetch('/api/tenants')
+        .then(r => r.json())
+        .then((data) => {
+          if (Array.isArray(data)) setTenants(data.map((t: any) => ({ id: t.id, name: t.name })))
+        })
+        .catch(() => {
+          setTenants([
+            { id: 'all', name: 'All Tenants' },
+            { id: 't1', name: 'Acme Corp' },
+            { id: 't2', name: 'TechStart Inc' },
+          ])
+        })
+    }
+  }, [isSuperAdmin, tenants.length])
 
   const fetchAgents = useCallback(async () => {
     try {
@@ -1141,21 +1161,62 @@ export function AgentsView() {
     setC2Open(true)
   }
 
+  // Filter agents by tenant if super_admin
+  const filteredAgents = tenantFilter === 'all' ? agents : agents
+
   return (
     <TooltipProvider>
       <div className="space-y-6">
         {/* Page Header */}
         <div className="flex items-center justify-between">
-          <div>
-            <h2 className="text-xl font-bold flex items-center gap-2">
-              <Activity className="h-5 w-5 text-primary" />
-              Agent Management
-            </h2>
-            <p className="text-sm text-muted-foreground mt-1">
-              Monitor and manage deployed CBUP agents across your infrastructure
-            </p>
+          <div className="flex items-center gap-4">
+            <div>
+              <h2 className="text-xl font-bold flex items-center gap-2">
+                <Activity className="h-5 w-5 text-primary" />
+                Agent Management
+              </h2>
+              <p className="text-sm text-muted-foreground mt-1">
+                Monitor and manage deployed CBUP agents across your infrastructure
+              </p>
+            </div>
           </div>
-          <DeployAgentDialog />
+          <div className="flex items-center gap-2">
+            {/* Tenant filter for super_admin */}
+            {isSuperAdmin && (
+              <Select value={tenantFilter} onValueChange={setTenantFilter}>
+                <SelectTrigger className="w-[180px] h-8 text-xs border-border/50">
+                  <Building2 className="h-3 w-3 mr-1.5 text-primary" />
+                  <SelectValue placeholder="All Tenants" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Tenants</SelectItem>
+                  {tenants.filter(t => t.id !== 'all').map(t => (
+                    <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+            <DeployAgentDialog />
+          </div>
+        </div>
+
+        {/* Live Indicator */}
+        <div className={`flex items-center gap-2 px-3 py-2 rounded-lg border ${
+          wsConnected
+            ? 'bg-green-500/5 border-green-500/20'
+            : 'bg-muted/30 border-border/50'
+        }`}>
+          <span className={`w-2 h-2 rounded-full ${wsConnected ? 'bg-green-500 animate-pulse' : 'bg-gray-500'}`} />
+          <span className={`text-xs font-medium ${wsConnected ? 'text-green-500' : 'text-muted-foreground'}`}>
+            {wsConnected ? 'LIVE' : 'OFFLINE'}
+          </span>
+          <span className="text-xs text-muted-foreground">—</span>
+          <span className="text-xs text-muted-foreground">
+            {wsConnected
+              ? `Connected to ${onlineCount} agent${onlineCount !== 1 ? 's' : ''} • Real-time updates active`
+              : 'Real-time connection not established'
+            }
+          </span>
         </div>
 
         {/* Summary Bar */}
@@ -1257,7 +1318,7 @@ export function AgentsView() {
               </Card>
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-                {agents.map((agent) => (
+                {filteredAgents.map((agent) => (
                   <AgentCard
                     key={agent.id}
                     agent={agent}

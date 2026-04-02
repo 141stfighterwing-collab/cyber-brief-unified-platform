@@ -6,6 +6,97 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ---
 
+## [0.4.0] - 2026-04-03
+
+### Added
+
+#### Endpoint Agent System (Major Feature)
+- **Windows PowerShell Agent** (`agent/CBUP-Agent.ps1`) — 1500+ line production agent with:
+  - System discovery (hostname, domain, OS, serial, service tag, BIOS, CPU, RAM, network, disks)
+  - Real-time telemetry collection (CPU, memory, disk I/O, network I/O, top processes, TCP connections, uptime)
+  - 5 EDR scan types: process analysis, service enumeration, port scan, autorun/persistence, vulnerability assessment
+  - Command & Control (C2) protocol with command polling and result reporting
+  - Windows service installation with registry persistence
+  - Gzip compression for large payloads
+  - Exponential backoff retry logic with TLS validation
+- **Linux Ubuntu Agent** (`agent/cbup-agent-linux.sh`) — 1050+ line Bash agent with:
+  - Full system discovery via dmidecode, /proc filesystem, lshw
+  - Real-time telemetry via /proc/stat, /proc/meminfo, /proc/net/dev, /proc/diskstats
+  - 5 EDR scans: process, service (systemd), port (ss), autorun (crontab/timers/init.d), vulnerability (apt/SSH/firewall/SUID)
+  - C2 protocol identical to Windows agent
+  - Systemd service with security hardening and auto-restart
+  - Compatible with Ubuntu 18.04+ and Debian 10+
+- **Windows System Tray App** (`agent/CBUP-Agent-Tray.ps1`) — GUI system tray application with:
+  - Dynamic status icons (green/yellow/red/gray) with shield overlay
+  - Right-click context menu: status, open dashboard, run EDR scan, show logs, restart agent
+  - Balloon tip notifications with cooldown for agent events
+  - 10-second polling timer for status updates
+- **Windows EXE Build Script** (`agent/build-exe.ps1`) — Compiles PS1 to standalone .exe via ps2exe
+- **Agent Install Script API** (`/api/agents/install-script`) — Serves agent scripts for download
+
+#### Multi-Tenant Architecture
+- New `Tenant` model with name, slug, plan, maxAgents, settings
+- New `TenantUser` model for user-tenant membership with role (owner/admin/analyst/member)
+- Tenant-scoped agent assignment with `tenantId` field on agents, alerts, and reports
+- **Tenant Management APIs**: Create, list, get, update, soft-delete tenants
+- **Agent Assignment API**: Assign/reassign agents between tenants
+
+#### Super Admin Console
+- New `role` field on User model: `user`, `admin`, `super_admin`
+- **Super Admin View** (`/components/admin/super-admin-view.tsx`) — 750+ line management dashboard:
+  - Platform-wide statistics (tenants, users, agents, alerts)
+  - Overview tab with pie/bar charts and health metrics
+  - Tenants tab with CRUD table and create dialog
+  - All Endpoints tab with cross-tenant filtered table
+  - Users tab with role management
+  - Activity Log tab with filtered timeline
+- **Super Admin APIs**: Platform stats, cross-tenant agents, user management, role assignment
+- Role-based navigation: Admin and Reports nav items only visible to authorized users
+
+#### Security Reports
+- New `SecurityReport` model with type, status, data, summary, agentIds
+- **5 Report Types**: Endpoint Health, EDR Scan Summary, Vulnerability Assessment, Compliance, Full Audit
+- **Reports View** (`/components/reports/reports-view.tsx`) — 550+ line interface:
+  - Report type cards with descriptions
+  - Generate Report dialog with scope selection
+  - Reports table with status indicators
+  - Detailed report view with radar chart, risk scores, compliance status, findings with recommendations
+- **Reports APIs**: Generate, list, get, delete, PDF placeholder
+
+#### Live WebSocket Infrastructure
+- **WebSocket Hub** (`src/lib/websocket.ts`) — Singleton WebSocket server with:
+  - Tenant-scoped broadcasting (users only see their tenant's data)
+  - Super Admin sees all tenants' events
+  - 7 event types: telemetry, command_status, edr_scan_progress, agent_online/offline, alert_new, report_generated
+  - Message replay queue (1000 messages) for reconnection
+  - Connection management with client tracking
+- **WebSocket Route** (`/api/ws`) — Connection endpoint and event type documentation
+- **Heartbeat Integration** — Agent heartbeats now broadcast real-time telemetry to connected WebSocket clients
+
+#### UI Enhancements
+- Live indicator in navbar and agents view (green pulsing dot for WebSocket connected)
+- Tenant selector dropdown in navbar for multi-tenant switching
+- Platform Health section in dashboard for super_admin users
+- Recent Reports section in dashboard for admin users
+- Tenant filter in agents view for cross-tenant management
+- Updated Deploy Agent dialog with Linux and Windows EXE installation instructions
+
+#### Database Schema Updates
+- `Tenant` model (id, name, slug, description, plan, maxAgents, settings, active)
+- `TenantUser` model (tenantId, userId, role)
+- `User` model enhanced with: role, avatar, settings fields
+- `Agent` model enhanced with: tenantId, tags, groups, notes fields
+- `Alert` model enhanced with: agentId, tenantId, resolved fields
+- `SecurityReport` model (id, tenantId, title, type, status, data, summary, agentIds)
+
+### Changed
+- Version bumped from 0.3.0 to 0.4.0
+- Zustand store updated with: admin/reports views, user role, tenant state, live telemetry state
+- Navbar updated with role-gated navigation items and tenant selector
+- All 31 API routes verified compiling with zero errors
+
+---
+
 ## [0.3.0] - 2025-04-03
 
 ### Added

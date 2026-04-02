@@ -19,16 +19,62 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+// =============================================================================
+// MULTI-TENANCY
+// =============================================================================
+
+model Tenant {
+  id          String   @id @default(cuid())
+  name        String
+  slug        String   @unique
+  description String?
+  plan        String   @default("free")  // free, pro, enterprise
+  maxAgents   Int      @default(10)
+  settings    String?                     // JSON settings
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  users       TenantUser[]
+  agents      Agent[]
+  reports     SecurityReport[]
+}
+
+model TenantUser {
+  id        String   @id @default(cuid())
+  tenantId  String
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation("UserTenants", fields: [userId], references: [id])
+  role      String   @default("member")  // owner, admin, analyst, member
+  createdAt DateTime @default(now())
+
+  @@unique([tenantId, userId])
+}
+
+// =============================================================================
+// USER (enhanced with role for super-admin)
+// =============================================================================
+
 model User {
   id        String   @id @default(cuid())
   email     String   @unique
   name      String?
   company   String?
   tier      String   @default("free")
+  role      String   @default("user")     // user, admin, super_admin
   password  String?
+  avatar    String?
+  settings  String?                       // JSON user preferences
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  tenants   TenantUser[] @relation("UserTenants")
 }
+
+// =============================================================================
+// CORE PLATFORM
+// =============================================================================
 
 model Alert {
   id          String   @id @default(cuid())
@@ -37,6 +83,9 @@ model Alert {
   source      String
   description String
   category    String
+  agentId     String?                      // Optional link to agent
+  tenantId    String?                      // Optional link to tenant
+  resolved    Boolean  @default(false)
   createdAt   DateTime @default(now())
 }
 
@@ -60,9 +109,15 @@ model Task {
   updatedAt   DateTime  @updatedAt
 }
 
+// =============================================================================
+// ENDPOINT AGENTS
+// =============================================================================
+
 model Agent {
   id            String     @id @default(cuid())
   agentId       String     @unique              // Unique agent identifier (GUID from agent)
+  tenantId      String?                         // Optional tenant assignment
+  tenant        Tenant?   @relation(fields: [tenantId], references: [id])
   hostname      String
   domain        String?
   osName        String
@@ -81,11 +136,16 @@ model Agent {
   lastSeen      DateTime   @default(now())
   version       String     @default("1.0.0")    // Agent version
   authToken     String?                         // For agent authentication
+  tags          String?                         // JSON array of tags
+  groups        String?                         // JSON array of groups
+  notes         String?                         // Admin notes
   telemetry     Telemetry[]
   commands      Command[]
   edrScans      EDRScan[]
   createdAt     DateTime   @default(now())
   updatedAt     DateTime   @updatedAt
+
+  @@index([tenantId])
 }
 
 model Telemetry {
@@ -120,6 +180,7 @@ model Command {
   status      String   @default("pending") // pending, executing, completed, failed
   result      String?                      // JSON result
   error       String?
+  createdBy   String?                      // User who issued the command
   createdAt   DateTime @default(now())
   executedAt  DateTime?
   completedAt DateTime?
@@ -138,4 +199,22 @@ model EDRScan {
   startedAt   DateTime @default(now())
   completedAt DateTime?
   durationMs  Int?
+}
+
+// =============================================================================
+// SECURITY REPORTS
+// =============================================================================
+
+model SecurityReport {
+  id          String   @id @default(cuid())
+  tenantId    String?
+  tenant      Tenant?  @relation(fields: [tenantId], references: [id])
+  title       String
+  type        String                       // vulnerability, compliance, edr_summary, endpoint_health, full_audit
+  status      String   @default("generating") // generating, completed, failed
+  data        String?                       // JSON report data
+  summary     String?                       // Executive summary text
+  agentIds    String?                       // JSON array of agent IDs included
+  createdAt   DateTime @default(now())
+  completedAt DateTime?
 }
