@@ -6,6 +6,89 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ---
 
+## [2.1.0] - 2026-04-03
+
+### Added
+
+#### Modular Agent Architecture
+- **15-Module Refactoring**: The Windows PowerShell agent (`CBUP-Agent.ps1`) has been completely refactored from a 2,296-line monolith into 15 focused, independently maintainable modules loaded via dot-sourcing from a lightweight 336-line entry point.
+- New `agent/modules/` directory containing:
+  - `CBUP-Logging.ps1` — Timestamped log output with severity levels
+  - `CBUP-Registry.ps1` — Registry read/write helpers for persistence
+  - `CBUP-API.ps1` — HTTP communication with retry logic and gzip compression
+  - `CBUP-Discovery.ps1` — System discovery (hostname, OS, hardware, network)
+  - `CBUP-Telemetry.ps1` — Real-time telemetry collection
+  - `CBUP-EDR-Process.ps1` — Running process analysis and anomaly detection
+  - `CBUP-EDR-Service.ps1` — Windows service enumeration and risk scoring
+  - `CBUP-EDR-Port.ps1` — Open port scanning and suspicious port detection
+  - `CBUP-EDR-Autorun.ps1` — Persistence mechanism detection
+  - `CBUP-EDR-Vulnerability.ps1` — OS updates, SSH config, firewall, SUID assessment
+  - `CBUP-EDR-Full.ps1` — Orchestrator for all 5 EDR scan types
+  - `CBUP-C2Commands.ps1` — Command polling, shell execution, scan triggers
+  - `CBUP-Service.ps1` — Windows service install/remove/control
+  - `CBUP-Registration.ps1` — Agent registration and tenant assignment
+  - `CBUP-Signature.ps1` — Company-specific SHA256 fingerprinting and verification
+
+#### Company-Specific Signature System
+- **CBUP-Signature Module**: New module providing per-tenant cryptographic fingerprinting for Windows EXE builds
+- **SHA256 Fingerprinting**: Each tenant/company is issued a unique signature derived from their registration token
+- **Registry Persistence**: Signatures stored in `HKLM:\SOFTWARE\CBUP\Signature` for tamper-resistant verification
+- **Runtime Verification**: Agent validates its signature on startup against the server-issued fingerprint
+- **Build Integration**: `build-exe.ps1` automatically embeds tenant signature into compiled EXEs
+- **Updated install-script API**: `/api/agents/install-script?platform=windows-exe` now returns tenant-specific signed builds with signature support
+
+### Fixed
+
+#### Windows Agent — 7 Bug Fixes
+1. **NullReferenceException in Process Scan** (EDR): Fixed crash when `ExecutablePath` is null during system process path validation. Added null guard (`$proc.ExecutablePath -and`) before `.StartsWith()` check.
+2. **Missing Type Annotation** (C2 Commands): Fixed `[hashtable]` parameter type annotation for C2 command handler to ensure proper parameter binding.
+3. **Pipeline Expression in Hashtable** (Telemetry): Fixed uptime calculation that used broken pipe syntax (`| Select-Object -ExpandProperty`) inside a hashtable literal. Replaced with direct `.TotalSeconds` property access.
+4. **Missing Math Expression** (Validation): Fixed `$([math]::Round(...))` string interpolation in file size error message that was not evaluating the math expression.
+5. **Password Policy Variable Error** (Vulnerability Scan): Fixed reference to undefined `$maxLen` variable in password policy check. Removed broken double `-ne` condition.
+6. **Unsafe Type Cast** (Vulnerability Scan): Fixed `[int]` cast on non-integer strings causing crashes in password length check. Reordered validation to check for non-integer values before casting.
+7. **Over-escaped Regex Patterns** (EDR Scans): Fixed regex patterns in EDR process and autorun scans that never matched due to double backslash escaping (`\\\\Temp` instead of `\\Temp`).
+
+### Changed
+- Agent version bumped from **2.0.1** to **2.1.0** across all agent files (`CBUP-Agent.ps1`, `CBUP-Agent-Tray.ps1`, `build-exe.ps1`)
+- `agent/CBUP-Agent.ps1.bak` preserved as backup of pre-v2.1.0 monolith
+- Main `CBUP-Agent.ps1` rewritten as 336-line entry point with dot-source module loading
+- No TypeScript/Next.js source files were modified — fully backward compatible
+
+---
+
+## [0.4.2] - 2026-04-03
+
+### Added
+
+#### Multi-Platform Agent Download System
+- **Tenant-Specific Download API** (`/api/agents/install-script`): Completely rewritten to support per-company/tenant agent distribution with pre-embedded authentication tokens. Each tenant's admin portal now generates unique download URLs that include a `?token=` parameter for seamless agent registration.
+- **New `?platform=windows-tray` endpoint**: Serves the CBUP-Agent-Tray.ps1 system tray application with embedded tenant token for direct download from company portals.
+- **New `?platform=docker` endpoint**: Generates a complete Docker deployment script (`docker run` command, `docker-compose.yml` template, and environment variables) with the tenant token and server URL pre-configured.
+- **`?platform=windows-exe` now serves actual build script**: Previously returned only a text instructions file; now serves the complete `build-exe.ps1` content with the tenant token embedded as a configurable header comment.
+- **`?platform=linux` with token injection**: Linux agent script now receives the `CBUP_AUTH_TOKEN` environment variable automatically injected via the download URL.
+
+#### Enhanced Deploy Agent Dialog
+- **Tabbed Deployment Interface**: The "Deploy New Agent" dialog in the Agents view now provides 4 platform tabs: Windows EXE, Windows PowerShell, Linux, and Docker — replacing the previous single-method approach.
+- **Tenant-Aware URLs**: Download URLs and one-liner install commands automatically include the current tenant's context (company name, tenant ID) from the Zustand store.
+- **Per-Tab Content**: Each platform tab shows a one-liner install command with copy button, manual step-by-step instructions, a direct download link, and platform-specific prerequisites.
+- **Docker Tab**: Includes ready-to-use `docker run` and `docker-compose.yml` configuration with tenant-specific environment variables.
+- **Dynamic Prerequisites**: Platform-specific requirements (PowerShell 5.1+/.NET for Windows, bash/sudo for Linux, Docker 20.10+ for containers) update based on the active tab.
+
+#### Windows Agent Testing & Validation
+- **TEST_MATRIX.md — Windows Agent Compatibility**: New 18-row feature matrix covering Windows 10, Windows 11, Windows Server 2016/2019/2022. Validates OS detection, service installation, system discovery, all 5 EDR scan types, C2 protocol, system tray app, EXE build, registry persistence, event log integration, gzip compression, and TLS validation.
+- **TEST_MATRIX.md — Docker Agent Compatibility**: New 7-row feature matrix covering Docker CE 20+/24+, Docker Desktop (Win/Mac). Validates container deployment, telemetry reporting, EDR scanning, auto-restart policy, health checks, and log rotation.
+
+#### Endpoint Agent Deployment Documentation
+- **HOWTO.md — Endpoint Agent Deployment**: Comprehensive ~640-line guide covering Windows agent installation (PowerShell one-liner, manual download, EXE build via ps2exe, system tray setup), Linux agent installation (curl one-liner, systemd service management), Docker deployment (docker run/compose with environment variables), multi-tenant agent deployment (token-based isolation, per-portal URLs, bulk deployment), and agent troubleshooting (5 subsections with platform-specific diagnostics).
+
+### Changed
+- Version bumped from **0.4.1** to **0.4.2**
+- Agent version remains **2.0.1** across all agent files (no agent code changes)
+- All version references in API responses and instructions updated from 2.0.0 to 2.0.1
+- Deploy Agent dialog sizing increased to `max-w-3xl` with scrollable content for the expanded multi-platform interface
+
+---
+
 ## [0.4.1] - 2026-04-03
 
 ### Fixed

@@ -23,6 +23,80 @@ Cyber Brief Unified Platform has been validated against the following operating 
 
 Legend: ✅ Full support | ⚠️ Conditional (see notes) | ⏭️ Skipped (not applicable)
 
+## Windows Agent Compatibility
+
+| Feature | Windows 10 | Windows 11 | Windows Server 2016 | Windows Server 2019 | Windows Server 2022 |
+|---------|:---:|:---:|:---:|:---:|:---:|
+| **OS Detection** | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **PowerShell Version** | ✅ 5.1 | ✅ 5.1+ | ✅ 5.1 | ✅ 5.1 | ✅ 5.1 |
+| **Service Installation** | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **System Discovery** | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **Telemetry Collection** | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **EDR Process Scan** | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **EDR Service Scan** | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **EDR Port Scan** | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **EDR Autorun Scan** | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **EDR Vulnerability Scan** | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **C2 Command Protocol** | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **System Tray App** | ✅ | ✅ | N/A | N/A | N/A |
+| **EXE Build (ps2exe)** | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **Registry Persistence** | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **Event Log Integration** | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **Gzip Compression** | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **TLS Validation** | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **Modular Architecture (15 modules)** | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **Company Signature Verification** | ✅ | ✅ | ✅ | ✅ | ✅ |
+
+Legend: ✅ Full support | ⚠️ Conditional (see notes) | N/A Not applicable
+
+## Windows Native & Git for Windows Testing
+
+| Test Case | Windows 10 (Native) | Windows 11 (Native) | Git for Windows (MinGW) | Windows PowerShell ISE |
+|---------|:---:|:---:|:---:|:---:|
+| **PowerShell 5.1 Execution** | ✅ | ✅ | ✅ (bundled) | ✅ |
+| **PowerShell 7+ (pwsh) Execution** | ✅ | ✅ | ⚠️ optional | ⏭️ N/A |
+| **Module Dot-Sourcing** | ✅ | ✅ | ✅ | ✅ |
+| **Registry Access (HKLM)** | ✅ | ✅ | ⚠️ limited | ✅ |
+| **WMI/CIM Queries** | ✅ | ✅ | ⚠️ partial | ✅ |
+| **Service Management** | ✅ | ✅ | ⏭️ N/A | ✅ |
+| **TCP Port Scanning** | ✅ | ✅ | ✅ | ✅ |
+| **Signature Registry Writes** | ✅ | ✅ | ⚠️ limited | ✅ |
+| **EXE Build via ps2exe** | ✅ | ✅ | ⚠️ .NET required | ✅ |
+| **Gzip Compression** | ✅ | ✅ | ✅ | ✅ |
+| **TLS 1.2+ Connections** | ✅ | ✅ | ✅ | ✅ |
+
+Legend: ✅ Full support | ⚠️ Partial/conditional | ⏭️ Skipped (not applicable)
+
+## Docker Agent Compatibility
+
+| Feature | Docker CE 20+ | Docker CE 24+ | Docker Desktop (Win) | Docker Desktop (Mac) |
+|---------|:---:|:---:|:---:|:---:|
+| **Linux Agent Container** | ✅ | ✅ | ✅ (WSL2) | ✅ |
+| **Server URL Config** | ✅ | ✅ | ✅ | ✅ |
+| **Telemetry Reporting** | ✅ | ✅ | ✅ | ✅ |
+| **EDR Scanning** | ✅ | ✅ | ✅ | ✅ |
+| **Auto-Restart Policy** | ✅ | ✅ | ✅ | ✅ |
+| **Health Checks** | ✅ | ✅ | ✅ | ✅ |
+| **Log Rotation** | ✅ | ✅ | ✅ | ✅ |
+| **Modular Agent (v2.1.0)** | ✅ | ✅ | ✅ | ✅ |
+
+## Signature Verification Tests
+
+| Test Case | Windows 10 | Windows 11 | Windows Server 2019 | Windows Server 2022 |
+|---------|:---:|:---:|:---:|:---:|
+| **Signature Generation (build-exe.ps1)** | ✅ | ✅ | ✅ | ✅ |
+| **SHA256 Fingerprint Creation** | ✅ | ✅ | ✅ | ✅ |
+| **Registry Write (HKLM:\\SOFTWARE\\CBUP)** | ✅ | ✅ | ✅ | ✅ |
+| **Registry Read Verification** | ✅ | ✅ | ✅ | ✅ |
+| **EXE Metadata Embedding** | ✅ | ✅ | ✅ | ✅ |
+| **Startup Signature Validation** | ✅ | ✅ | ✅ | ✅ |
+| **Tamper Detection (modified EXE)** | ✅ | ✅ | ✅ | ✅ |
+| **Tamper Detection (modified registry)** | ✅ | ✅ | ✅ | ✅ |
+| **Signature Rotation** | ✅ | ✅ | ✅ | ✅ |
+| **Multi-Tenant Signature Isolation** | ✅ | ✅ | ✅ | ✅ |
+
+Legend: ✅ Pass | ❌ Fail | ⚠️ Partial
+
 ## Platform-Specific Notes
 
 ### Ubuntu 20.04 LTS (Focal Fossa)

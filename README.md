@@ -3,7 +3,7 @@
 <div align="center">
 
 ![CBUP Banner](https://img.shields.io/badge/CBUP-Cyber%20Brief%20Unified%20Platform-00C853?style=for-the-badge&logo=shield&logoColor=white)
-![Version](https://img.shields.io/badge/version-0.2.0-blue?style=flat-square)
+![Version](https://img.shields.io/badge/version-2.1.0-blue?style=flat-square)
 ![License](https://img.shields.io/badge/license-MIT-green?style=flat-square)
 ![Next.js](https://img.shields.io/badge/Next.js-16-black?style=flat-square&logo=next.js)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5.0-3178C6?style=flat-square&logo=typescript&logoColor=white)
@@ -29,6 +29,7 @@ Unified cybersecurity awareness, real-time alerts, workflow management, and low-
 - [Docker Deployment](#docker-deployment)
 - [Configuration](#configuration)
 - [Database](#database)
+- [Endpoint Agent System](#endpoint-agent-system)
 - [Pricing Tiers](#pricing-tiers)
 - [Project Structure](#project-structure)
 - [API Reference](#api-reference)
@@ -420,6 +421,136 @@ See [docs/DATABASES.md](docs/DATABASES.md) for full database documentation inclu
 
 ---
 
+## Endpoint Agent System
+
+CBUP includes cross-platform endpoint monitoring agents that can be deployed to any Windows or Linux machine from your company's admin portal. Each tenant/company gets unique, token-authenticated download URLs. Agent version **2.1.0** introduces a fully modular architecture and company-specific code signing for EXE downloads.
+
+### Supported Platforms
+
+| Platform | Format | Agent Version | Installation |
+|---------|--------|:---:|-------------|
+| **Windows** | `.exe` (compiled) | 2.1.0 | One-liner or manual download |
+| **Windows** | `.ps1` (PowerShell) | 2.1.0 | One-liner or manual download |
+| **Windows** | `.ps1` (System Tray) | 2.1.0 | Optional GUI for status monitoring |
+| **Linux** | `.sh` (Bash) | 2.1.0 | curl one-liner or manual download |
+| **Docker** | Container | 2.1.0 | `docker run` or `docker-compose` |
+
+### Modular Agent Architecture (v2.1.0)
+
+The Windows PowerShell agent has been refactored from a 2,296-line monolith into **15 focused modules** loaded via dot-sourcing from a lightweight 336-line entry point (`CBUP-Agent.ps1`). This architecture enables easier maintenance, independent testing, and selective feature deployment.
+
+| Module | File | Purpose |
+|--------|------|---------|
+| **Core** | `CBUP-Logging.ps1` | Timestamped log output with severity levels |
+| **Core** | `CBUP-Registry.ps1` | Registry read/write helpers for persistence |
+| **Core** | `CBUP-API.ps1` | HTTP communication with retry logic and gzip |
+| **Core** | `CBUP-Registration.ps1` | Agent registration and tenant assignment |
+| **Core** | `CBUP-Service.ps1` | Windows service install/remove/control |
+| **Discovery** | `CBUP-Discovery.ps1` | Hostname, OS, hardware, network enumeration |
+| **Telemetry** | `CBUP-Telemetry.ps1` | CPU, memory, disk, network, process metrics |
+| **EDR** | `CBUP-EDR-Process.ps1` | Running process analysis and anomaly detection |
+| **EDR** | `CBUP-EDR-Service.ps1` | Windows service enumeration and risk scoring |
+| **EDR** | `CBUP-EDR-Port.ps1` | Open port scanning and suspicious port detection |
+| **EDR** | `CBUP-EDR-Autorun.ps1` | Persistence mechanism detection (registry, scheduled tasks, startup) |
+| **EDR** | `CBUP-EDR-Vulnerability.ps1` | OS updates, SSH config, firewall, SUID assessment |
+| **EDR** | `CBUP-EDR-Full.ps1` | Orchestrator that runs all 5 EDR scan types |
+| **C2** | `CBUP-C2Commands.ps1` | Command polling, shell execution, scan triggers |
+| **Signing** | `CBUP-Signature.ps1` | Company-specific SHA256 fingerprinting and verification |
+
+### Company-Specific Signature System
+
+v2.1.0 introduces a per-company code signing and verification system for Windows EXE downloads:
+
+- **SHA256 Fingerprinting**: Each tenant/company is issued a unique cryptographic signature embedded during EXE build
+- **Registry Persistence**: Signature stored in `HKLM:\SOFTWARE\CBUP\Signature` for tamper-resistant verification
+- **Runtime Verification**: Agent validates its signature on startup against the server-issued fingerprint
+- **Build Integration**: `build-exe.ps1` automatically embeds the tenant signature into compiled EXEs
+- **Download API**: The `/api/agents/install-script?platform=windows-exe` endpoint now returns tenant-specific signed builds
+
+### Agent Features
+
+- **System Discovery**: Hostname, domain, OS, serial number, BIOS, CPU, RAM, network, disks
+- **Real-Time Telemetry**: CPU, memory, disk I/O, network I/O, top processes, TCP connections, uptime
+- **5 EDR Scan Types**: Process analysis, service enumeration, port scan, autorun/persistence, vulnerability assessment
+- **Command & Control (C2)**: Remote shell execution, EDR scan triggers, ping, restart
+- **Windows Service**: Installs as `CBUPAgent` service with registry persistence
+- **Linux systemd**: Security-hardened service with auto-restart
+- **Company Signatures**: Per-tenant SHA256 fingerprinting for EXE integrity verification
+- **Gzip Compression**: For large telemetry payloads
+- **Exponential Backoff Retry**: Resilient API communication
+
+### v2.1.0 Bug Fixes
+
+1. **NullReferenceException in Process Scan** — Fixed crash when `ExecutablePath` is null during system process path validation (null guard added)
+2. **Missing Type Annotation** — Fixed `[hashtable]` parameter type for C2 command handler
+3. **Pipeline Expression in Hashtable** — Fixed uptime calculation that used broken pipe syntax inside hashtable literal
+4. **Missing Math Expression** — Fixed `$([math]::Round(...))` string interpolation in file size error message
+5. **Password Policy Variable Error** — Fixed reference to undefined `$maxLen` variable in password policy check
+6. **Unsafe Type Cast** — Fixed `[int]` cast on non-integer strings causing crashes in password length check
+7. **Over-escaped Regex Patterns** — Fixed regex patterns in EDR scans that never matched due to double backslash escaping
+
+### Download from Company Portal
+
+Each tenant's admin portal provides pre-authenticated download URLs with company-specific signatures embedded:
+
+```
+# Windows EXE (signed, build locally with tenant signature)
+GET /api/agents/install-script?platform=windows-exe&token=TENANT_TOKEN
+
+# Windows PowerShell
+GET /api/agents/install-script?platform=windows&token=TENANT_TOKEN
+
+# Windows System Tray
+GET /api/agents/install-script?platform=windows-tray&token=TENANT_TOKEN
+
+# Linux
+GET /api/agents/install-script?platform=linux&token=TENANT_TOKEN
+
+# Docker
+GET /api/agents/install-script?platform=docker&token=TENANT_TOKEN
+```
+
+### Quick Install Examples
+
+```powershell
+# Windows PowerShell (one-liner)
+Set-ExecutionPolicy Bypass -Scope Process -Force; Invoke-WebRequest -Uri 'https://YOUR-PORTAL/api/agents/install-script?platform=windows&token=TENANT_TOKEN' -OutFile 'CBUP-Agent.ps1'; .\CBUP-Agent.ps1 -ServerUrl 'https://YOUR-PORTAL' -Token TENANT_TOKEN -Install
+```
+
+```bash
+# Linux (one-liner)
+curl -fsSL 'https://YOUR-PORTAL/api/agents/install-script?platform=linux&token=TENANT_TOKEN' | sudo bash
+```
+
+```bash
+# Docker
+docker run -d --name cbup-agent --restart unless-stopped \
+  -e CBUP_SERVER_URL='https://YOUR-PORTAL' \
+  -e CBUP_AUTH_TOKEN='TENANT_TOKEN' \
+  cbup/agent:latest
+```
+
+### Windows EXE Build (Signed)
+
+The Windows agent can be compiled to a standalone, company-signed `.exe` using the included `build-exe.ps1` script. The signature is derived from the tenant token and embedded into the binary:
+
+```powershell
+# Download the build script from your portal (includes tenant signature)
+Invoke-WebRequest -Uri 'https://YOUR-PORTAL/api/agents/install-script?platform=windows-exe&token=TENANT_TOKEN' -OutFile 'build-exe.ps1'
+
+# Build the signed EXE (requires ps2exe module)
+.\build-exe.ps1
+
+# Install the compiled agent
+.\dist\CBUP-Agent.exe -ServerUrl 'https://YOUR-PORTAL' -Token TENANT_TOKEN -Install
+```
+
+The signature is verified at agent startup against the server-issued fingerprint to ensure binary integrity.
+
+See [docs/HOWTO.md](docs/HOWTO.md#endpoint-agent-deployment) for the full deployment guide.
+
+---
+
 ## Pricing Tiers
 
 | Feature | Free | Starter | Pro | Enterprise |
@@ -455,7 +586,30 @@ cyber-brief-unified-platform/
 │   ├── HOWTO.md                  # How-to guides
 │   ├── FAQ.md                    # Frequently asked questions
 │   ├── CHANGELOG.md              # Version history
+│   ├── TEST_MATRIX.md            # OS compatibility test matrix
 │   └── CONTRIBUTING.md           # Contributing guidelines
+├── agent/                        # Endpoint monitoring agents
+│   ├── CBUP-Agent.ps1            # Windows PowerShell agent (entry point)
+│   ├── CBUP-Agent.ps1.bak        # Backup of monolith agent (pre-v2.1.0)
+│   ├── CBUP-Agent-Tray.ps1       # Windows system tray application
+│   ├── build-exe.ps1             # Windows EXE build script (ps2exe)
+│   ├── cbup-agent-linux.sh        # Linux Bash agent
+│   └── modules/                  # Modular PowerShell agent components
+│       ├── CBUP-Logging.ps1      # Logging subsystem
+│       ├── CBUP-Registry.ps1     # Registry helpers
+│       ├── CBUP-API.ps1          # HTTP communication
+│       ├── CBUP-Discovery.ps1    # System discovery
+│       ├── CBUP-Telemetry.ps1    # Telemetry collection
+│       ├── CBUP-EDR-Process.ps1  # EDR process scan
+│       ├── CBUP-EDR-Service.ps1  # EDR service scan
+│       ├── CBUP-EDR-Port.ps1     # EDR port scan
+│       ├── CBUP-EDR-Autorun.ps1  # EDR autorun/persistence scan
+│       ├── CBUP-EDR-Vulnerability.ps1 # EDR vulnerability scan
+│       ├── CBUP-EDR-Full.ps1     # EDR full scan orchestrator
+│       ├── CBUP-C2Commands.ps1   # C2 command handler
+│       ├── CBUP-Service.ps1      # Windows service management
+│       ├── CBUP-Registration.ps1 # Agent registration
+│       └── CBUP-Signature.ps1    # Company signature system
 ├── prisma/
 │   └── schema.prisma             # Database schema
 ├── public/
@@ -632,6 +786,7 @@ bunx tsc --noEmit
 | [docs/HOWTO.md](docs/HOWTO.md) | Step-by-step installation and configuration guides |
 | [docs/FAQ.md](docs/FAQ.md) | Frequently asked questions and troubleshooting |
 | [docs/CHANGELOG.md](docs/CHANGELOG.md) | Version history, release notes, patching guide |
+| [docs/PATCHING.md](docs/PATCHING.md) | Patch notes, security fixes, upgrade instructions |
 | [docs/CONTRIBUTING.md](docs/CONTRIBUTING.md) | Code contribution guidelines and code change process |
 
 ---
