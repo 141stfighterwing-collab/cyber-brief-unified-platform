@@ -13,7 +13,7 @@
 #   ./cbup-agent-linux.sh --server-url https://cbup.example.com --dev-mode
 #   ./cbup-agent-linux.sh --uninstall
 #
-# Version:    2.0.0
+# Version:    2.0.1
 # Author:     CBUP Security Engineering
 # License:    Proprietary
 # =============================================================================
@@ -23,7 +23,7 @@ set -euo pipefail
 # =============================================================================
 # CONFIGURATION & CONSTANTS
 # =============================================================================
-readonly AGENT_VERSION="2.0.0"
+readonly AGENT_VERSION="2.0.1"
 readonly AGENT_NAME="cbup-agent"
 readonly INSTALL_DIR="/opt/cbup-agent"
 readonly CONFIG_DIR="/etc/cbup-agent"

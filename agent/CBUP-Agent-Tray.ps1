@@ -7,7 +7,7 @@
     Provides visual status indicator, context menu actions, and balloon notifications
     for agent events. Does NOT run the agent itself - monitors the service status.
 .NOTES
-    Version:    2.0.0
+    Version:    2.0.1
     Author:     CBUP Security Engineering
     Project:    Cyber Brief Unified Platform
     Requires:   Windows PowerShell 5.1+ with Windows Forms support
@@ -37,7 +37,7 @@ param(
 # CONFIGURATION
 # =============================================================================
 
-$script:AgentVersion = "2.0.0"
+$script:AgentVersion = "2.0.1"
 $script:ServiceName = $ServiceName
 $script:RegKeyPath = $RegKeyPath
 $script:StatusCheckInterval = 10000  # 10 seconds in milliseconds

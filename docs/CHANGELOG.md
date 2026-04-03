@@ -6,6 +6,28 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ---
 
+## [0.4.1] - 2026-04-03
+
+### Fixed
+
+#### Endpoint Agent — Critical Script Corruption Fix
+- **Windows PowerShell Agent** (`agent/CBUP-Agent.ps1`): Fixed 22 instances of corrupted `[m[math]` type references that should have been `[math]`. This corruption was introduced by a malformed text replacement in the original commit and caused **fatal parse errors** on every agent module that performs numeric calculations. Affected functions include:
+  - `Get-SystemDiscoveryData` — RAM (line 438), disk size calculations (lines 483–484)
+  - `Get-TelemetryData` — CPU average (line 539), memory metrics (lines 543–545, 550, 552), disk space (lines 560, 563–566), top process CPU/memory (lines 600–601, 615–616), uptime (line 633)
+  - `Invoke-EDRProcessScan` — process CPU and memory calculations (lines 713–714)
+  - Command file-size validation (line 1521)
+- The backup file `agent/CBUP-Agent.ps1.bak` was also corrected and preserved as the known-good reference.
+
+### Changed
+- Agent version bumped from **2.0.0** to **2.0.1** across all agent files:
+  - `agent/CBUP-Agent.ps1`
+  - `agent/CBUP-Agent.ps1.bak`
+  - `agent/CBUP-Agent-Tray.ps1`
+  - `agent/build-exe.ps1`
+  - `agent/cbup-agent-linux.sh`
+
+---
+
 ## [0.4.0] - 2026-04-03
 
 ### Added
