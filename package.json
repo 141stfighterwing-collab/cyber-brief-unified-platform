@@ -3,7 +3,7 @@
   "version": "2.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev -p 3000",
+    "dev": "next dev -p 3001",
     "build": "next build && node -e \"const fs=require('fs'),p=require('path');const dirs=[['.next/static','.next/standalone/.next/static'],['public','.next/standalone/public']];dirs.forEach(([s,d])=>{if(fs.existsSync(s)){fs.cpSync(s,d,{recursive:true,force:true});console.log('Copied '+s+' -> '+d)}})\"",
     "start": "next start",
     "lint": "eslint .",
