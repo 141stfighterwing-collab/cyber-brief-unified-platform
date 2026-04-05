@@ -351,9 +351,11 @@ function New-ShieldIcon {
     try {
         Add-Type -AssemblyName System.Drawing -ErrorAction Stop
 
-        # Create a multi-resolution icon (16x16, 32x32, 48x48, 64x64, 256x256)
-        $iconSizes = @(16, 32, 48, 64, 256)
-        $bitmapList = [System.Collections.Generic.List[System.Drawing.Bitmap]]::new()
+        # Create a multi-resolution icon (16x16, 32x32, 48x48, 64x64)
+        # Note: Skip 256x256 on PS 5.1 — large GDI+ bitmaps can cause
+        # Pen constructor failures and out-of-memory in some environments.
+        $iconSizes = @(16, 32, 48, 64)
+        $bitmapList = New-Object System.Collections.Generic.List[System.Drawing.Bitmap]
 
         foreach ($s in $iconSizes) {
             $bmp = New-Object System.Drawing.Bitmap($s, $s)
@@ -370,7 +372,8 @@ function New-ShieldIcon {
             # Shield body (rounded rectangle with curved top)
             $shieldColor = [System.Drawing.Color]::FromArgb(0, 180, 100)  # Green
             $shieldBrush = New-Object System.Drawing.SolidBrush($shieldColor)
-            $shieldPen = New-Object System.Drawing.Pen([System.Drawing.Color]::FromArgb(0, 140, 75), 2 * $scale)
+            $penWidth = [System.Single]($s * 2.0 / 64.0)
+            $shieldPen = New-Object System.Drawing.Pen([System.Drawing.Color]::FromArgb(0, 140, 75), $penWidth)
 
             # Draw shield shape using GraphicsPath
             $path = New-Object System.Drawing.Drawing2D.GraphicsPath
@@ -396,7 +399,8 @@ function New-ShieldIcon {
 
             # Checkmark
             $checkColor = [System.Drawing.Color]::White
-            $checkPen = New-Object System.Drawing.Pen($checkColor, 4 * $scale)
+            $checkWidth = [System.Single]($s * 4.0 / 64.0)
+            $checkPen = New-Object System.Drawing.Pen($checkColor, $checkWidth)
             $checkPen.StartCap = [System.Drawing.Drawing2D.LineCap]::Round
             $checkPen.EndCap = [System.Drawing.Drawing2D.LineCap]::Round
 
@@ -429,7 +433,7 @@ function New-ShieldIcon {
         $dataOffset = $headerSize
 
         # Write directory entries
-        $imageDataList = [System.Collections.Generic.List[byte[]]]::new()
+        $imageDataList = New-Object System.Collections.Generic.List[byte[]]
         foreach ($bmp in $bitmapList) {
             $ms = New-Object System.IO.MemoryStream
             $bmp.Save($ms, [System.Drawing.Imaging.ImageFormat]::Png)
@@ -502,6 +506,15 @@ function Build-Exe {
     $displayName = if ($Platform -eq "console") { "Console" } else { "Windows (Hidden)" }
     Write-Host "[*] Building CBUP-Agent.exe ($displayName mode)..." -ForegroundColor Cyan
 
+    # Dynamically detect supported parameters for the installed ps2exe version.
+    # Older versions may not have requiresAdmin, sta, mta, nested, etc.
+    $ps2exeCmd = Get-Command -Name "Invoke-ps2exe" -ErrorAction SilentlyContinue
+    $supportedParams = @{}
+    if ($ps2exeCmd) {
+        $ps2exeCmd.Parameters.Keys | ForEach-Object { $supportedParams[$_] = $true }
+        Write-Host "    [INFO] ps2exe supports: $($supportedParams.Keys -join ', ')" -ForegroundColor DarkGray
+    }
+
     $params = @{
         inputFile         = $script:SourceScript
         outputFile        = $OutputPath
@@ -512,12 +525,15 @@ function Build-Exe {
         product           = "CBUP Agent"
         version           = $script:AgentVersion
         copyright         = "(c) $(Get-Date -Format yyyy) CBUP Security Engineering"
-        requiresAdmin     = $false
-        sta               = $false
-        mta               = $true
-        runtime40         = $true
-        nested             = $true
     }
+
+    # Only add optional parameters if the installed ps2exe version supports them
+    if ($supportedParams['requiresAdmin'])  { $params['requiresAdmin']  = $false }
+    if ($supportedParams['sta'])            { $params['sta']            = $false }
+    if ($supportedParams['mta'])            { $params['mta']            = $true }
+    if ($supportedParams['runtime40'])      { $params['runtime40']      = $true }
+    if ($supportedParams['nested'])         { $params['nested']         = $true }
+    if ($supportedParams['credential'])     { $params['credential']     = $null }
 
     # Override with injected metadata if available
     if ($CBUP_EXE_COMPANY)    { $params["company"]     = $CBUP_EXE_COMPANY }
