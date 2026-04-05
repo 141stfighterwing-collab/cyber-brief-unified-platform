@@ -3,17 +3,17 @@
 <div align="center">
 
 ![CBUP Banner](https://img.shields.io/badge/CBUP-Cyber%20Brief%20Unified%20Platform-00C853?style=for-the-badge&logo=shield&logoColor=white)
-![Version](https://img.shields.io/badge/version-2.2.0-blue?style=flat-square)
+![Version](https://img.shields.io/badge/version-2.4.0-blue?style=flat-square)
 ![License](https://img.shields.io/badge/license-MIT-green?style=flat-square)
-![Next.js](https://img.shields.io/badge/Next.js-16-black?style=flat-square&logo=next.js)
-![TypeScript](https://img.shields.io/badge/TypeScript-5.0-3178C6?style=flat-square&logo=typescript&logoColor=white)
+![Next.js](https://img.shields.io/badge/Next.js-16.1-black?style=flat-square&logo=next.js)
+![TypeScript](https://img.shields.io/badge/TypeScript-5.x-3178C6?style=flat-square&logo=typescript&logoColor=white)
 ![Docker](https://img.shields.io/badge/Docker-Ready-2496ED?style=flat-square&logo=docker&logoColor=white)
 
 **One platform. Every threat covered.**
 
-Unified cybersecurity awareness, real-time alerts, workflow management, and low-level monitoring for companies of any size. Self-hosted and on-prem ready.
+Unified cybersecurity awareness, real-time alerts, endpoint agent management, EDR scanning, workflow management, and low-level monitoring for organizations of any size. Self-hosted and on-prem ready.
 
-[Get Started](#quick-start) · [Features](#features) · [Pricing](#pricing) · [Documentation](#docs/) · [Install Script](#installsh)
+[Get Started](#quick-start) · [Features](#features) · [Documentation](#docs/) · [Install Script](#installsh)
 
 </div>
 
@@ -23,58 +23,80 @@ Unified cybersecurity awareness, real-time alerts, workflow management, and low-
 
 - [Overview](#overview)
 - [Features](#features)
-- [Architecture](#architecture)
+- [Technology Stack](#technology-stack)
 - [Quick Start](#quick-start)
+- [Default Admin Credentials](#default-admin-credentials)
+- [Important Warnings](#important-warnings)
 - [1-Click Installation](#1-click-installation)
 - [Docker Deployment](#docker-deployment)
 - [Configuration](#configuration)
 - [Database](#database)
 - [Endpoint Agent System](#endpoint-agent-system)
-- [Pricing Tiers](#pricing-tiers)
 - [Project Structure](#project-structure)
 - [API Reference](#api-reference)
 - [Development](#development)
-- [Testing](#testing)
 - [Documentation](#documentation)
-- [Versioning & Patching](#versioning--patching)
+- [Security Considerations](#security-considerations)
+- [Roadmap](#roadmap)
 - [License](#license)
 
 ---
 
 ## Overview
 
-**Cyber Brief Unified Platform (CBUP)** is a comprehensive cybersecurity awareness and monitoring SaaS platform designed for companies that need enterprise-grade security visibility without enterprise-grade complexity. Whether you're a 5-person startup or a 500-person organization, CBUP gives your team the tools to stay informed, respond to threats, and maintain compliance — all from a single, self-hosted platform.
+**Cyber Brief Unified Platform (CBUP)** is a comprehensive cybersecurity briefing and monitoring platform designed for organizations that need enterprise-grade security visibility without enterprise-grade complexity. Whether you're a small team or a large organization, CBUP gives your security team the tools to stay informed, respond to threats, manage endpoints, and maintain compliance — all from a single, self-hosted platform.
 
-CBUP delivers daily curated threat intelligence briefings, real-time alerting for emerging vulnerabilities and active campaigns, a workflow engine for tracking remediation tasks, and low-level monitoring dashboards for trend analysis and compliance reporting. It is built to run on-premises or in any private cloud environment, giving you full control over your security data.
+CBUP delivers curated threat intelligence briefings, real-time alerting for emerging vulnerabilities and active campaigns, cross-platform endpoint agents with EDR capabilities, C2 remote command execution, a workflow engine for tracking remediation tasks, and multi-tenant role-based access control. It is built to run on-premises or in any private cloud environment, giving you full control over your security data.
 
 ### Key Design Principles
 
 - **Self-Hosted First**: Your security data stays in your infrastructure. No external dependencies.
-- **Low Cost Impact**: Runs on a single server with minimal resources (1 CPU, 2GB RAM minimum).
+- **Low Cost Impact**: Runs on a single server with minimal resources (1 CPU, 2 GB RAM minimum).
 - **Zero Vendor Lock-In**: Open architecture with SQLite, standard REST APIs, and portable data.
 - **Security-Conscious**: Built with defense-in-depth principles, least-privilege services, and hardened configurations.
+- **Multi-Tenant Architecture**: Isolate data per organization with granular role-based access control.
 
 ---
 
 ## Features
 
-### Daily Threat Intelligence Brief
-- AI-curated morning cybersecurity briefings delivered daily at 6:00 AM
-- Sections: Top Threats, Vulnerability Watch, Industry Alerts, Recommended Actions, Threat Intelligence Summary
-- Severity-scored items with actionable recommendations
-- Historical brief archive with full-text search
+### Multi-Tenant Cybersecurity Management
+- Tenant isolation with unique authentication per organization
+- Three-tier role-based access control: `user`, `admin`, `super_admin`
+- Super-admin dashboard for cross-tenant visibility and management
 
-### Real-Time Alert Management
+### Endpoint Agent Management
+- Cross-platform agents for Windows (PowerShell, EXE, System Tray) and Linux (Bash)
+- Token-authenticated registration and per-tenant agent assignment
+- Real-time telemetry: CPU, memory, disk I/O, network I/O, top processes, TCP connections
+- Heartbeat monitoring and offline agent detection
+- Remote C2 command execution (shell commands, EDR scan triggers, ping, restart)
+- Deploy agents directly from the admin portal with one-liner install scripts
+
+### EDR (Endpoint Detection & Response)
+- 5 EDR scan types: Process analysis, service enumeration, port scanning, autorun/persistence detection, vulnerability assessment
+- Full-scan orchestration combining all scan types into a single request
+- Findings uploaded to the server with severity scoring and risk classification
+
+### Real-Time Alert Monitoring
 - 18+ pre-loaded realistic alerts covering CVEs, zero-days, phishing campaigns, ransomware, APTs, supply chain attacks, and data breaches
 - Severity-based filtering: Critical, High, Medium, Low
 - Category-based organization: Vulnerability, Malware, Phishing, Ransomware, APT, Supply Chain, Attack, Data Breach, Misconfiguration
 - Searchable and expandable alert cards with full descriptions
 
+### Security Briefs
+- AI-curated cybersecurity briefings with threat intelligence summaries
+- Severity-scored items with actionable recommendations
+- Historical brief archive with full-text search
+
 ### Workflow & Task Management
 - Kanban-style board with four columns: New, In Progress, Review, Completed
-- Task creation with priority levels (Critical, High, Medium, Low) and assignee tracking
+- Task creation with priority levels and assignee tracking
 - Due date management and status transitions
-- Click-to-move task cards between workflow stages
+
+### Security Reports Generation
+- Automated report generation with PDF export
+- Tenant-specific report history and detail views
 
 ### Monitoring & Analytics
 - Interactive threat trend line charts (7-day rolling window)
@@ -83,70 +105,13 @@ CBUP delivers daily curated threat intelligence briefings, real-time alerting fo
 - System status indicators and health monitoring
 - Real-time activity log timeline
 
-### Multi-Tier Access Control
-- Free tier for individual practitioners
-- Starter tier for small security teams (up to 5 users)
-- Pro tier for growing organizations (up to 25 users)
-- Enterprise tier with unlimited users, on-prem deployment, and SIEM integration
-
-### On-Premises Deployment
-- Single binary deployment via systemd
-- Docker container with healthchecks
-- Persistent data volumes
-- Automated backup and restore
-- Firewall auto-configuration
-
 ---
 
-## Architecture
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│                    CBUP Architecture                         │
-│                                                              │
-│  ┌──────────┐  ┌──────────┐  ┌──────────────────────────┐  │
-│  │  Client   │  │  Client  │  │  Client (Mobile/Desktop) │  │
-│  │ (Browser) │  │ (Browser)│  │                          │  │
-│  └─────┬─────┘  └────┬─────┘  └──────────┬───────────────┘  │
-│        │              │                    │                  │
-│        └──────────────┴────────────────────┘                  │
-│                       │ HTTP/S                                │
-│  ┌────────────────────▼────────────────────────────────────┐  │
-│  │                  Reverse Proxy (Caddy)                    │  │
-│  │                    Port 80/443                            │  │
-│  └────────────────────┬────────────────────────────────────┘  │
-│                       │                                       │
-│  ┌────────────────────▼────────────────────────────────────┐  │
-│  │              Next.js 16 Application                       │  │
-│  │                   Port 3000                               │  │
-│  │  ┌──────────────────────────────────────────────────┐   │  │
-│  │  │  Frontend (React 19 + Tailwind + shadcn/ui)      │   │  │
-│  │  │  Zustand State Management | Recharts             │   │  │
-│  │  └──────────────────────────────────────────────────┘   │  │
-│  │  ┌──────────────────────────────────────────────────┐   │  │
-│  │  │  API Routes (REST)                               │   │  │
-│  │  │  /api/auth/signup | /api/alerts                  │   │  │
-│  │  │  /api/tasks | /api/briefs | /api/dashboard/stats │   │  │
-│  │  └──────────────────────────────────────────────────┘   │  │
-│  └────────────────────┬────────────────────────────────────┘  │
-│                       │                                       │
-│  ┌────────────────────▼────────────────────────────────────┐  │
-│  │              Prisma ORM                                  │  │
-│  └────────────────────┬────────────────────────────────────┘  │
-│                       │                                       │
-│  ┌────────────────────▼────────────────────────────────────┐  │
-│  │              SQLite Database                              │  │
-│  │              /var/lib/cbup/cbup.db                        │  │
-│  └─────────────────────────────────────────────────────────┘  │
-│                                                              │
-└─────────────────────────────────────────────────────────────┘
-```
-
-### Technology Stack
+## Technology Stack
 
 | Layer | Technology | Version |
 |-------|-----------|---------|
-| Framework | Next.js (App Router) | 16.x |
+| Framework | Next.js (App Router) | 16.1 |
 | Language | TypeScript | 5.x |
 | Runtime | Bun | 1.2+ |
 | UI Library | shadcn/ui (New York) | Latest |
@@ -154,8 +119,8 @@ CBUP delivers daily curated threat intelligence briefings, real-time alerting fo
 | State Management | Zustand | 5.x |
 | Database | SQLite via Prisma ORM | 6.x |
 | Charts | Recharts | 2.x |
-| Animations | Framer Motion | 12.x |
 | Forms | React Hook Form + Zod | 7.x / 4.x |
+| Animations | Framer Motion | 12.x |
 
 ---
 
@@ -165,26 +130,32 @@ CBUP delivers daily curated threat intelligence briefings, real-time alerting fo
 
 - **Bun** 1.0+ — [Install Bun](https://bun.sh/)
 - **Git** — for cloning the repository
-- **Node.js** 20+ (alternative to Bun)
 
 ### Install & Run
 
 ```bash
-# Clone the repository
-git clone https://github.com/141stfighterwing-collab/cyber-brief-unified-platform.git
-cd cyber-brief-unified-platform
+# 1. Clone the repository
+git clone https://github.com/141stfighterwing-collab/CBUP.git
 
-# Install dependencies
+# 2. Enter the project directory
+cd CBUP
+
+# 3. Install dependencies
 bun install
 
-# Set up database
+# 4. Set up the SQLite database (pushes Prisma schema)
 bun run db:push
 
-# Start development server
+# 5. Seed the database (creates default admin user + sample data)
+bunx tsx prisma/seed.ts
+
+# 6. Start the development server
 bun run dev
 ```
 
-The application will be available at `http://localhost:3000`.
+The application will be available at **http://localhost:3001**.
+
+> **Note:** The dev server runs on **port 3001** (not 3000) to avoid conflicts.
 
 ### Production Build
 
@@ -198,6 +169,54 @@ bun run start
 
 ---
 
+## Default Admin Credentials
+
+After running the seed script, you can log in with the default super-admin account:
+
+| Field | Value |
+|-------|-------|
+| **Email** | `admin@cbup.io` |
+| **Password** | `CBUPadmin2024!` |
+
+> **Important:** Change this password immediately after first login in a production environment.
+
+---
+
+## Important Warnings
+
+> ### ⚠️ Do NOT Create a Nested Directory
+>
+> When cloning the repository, the URL produces a directory named `CBUP`. Make sure you do **not** accidentally create a nested `CBUP/CBUP/` directory. Clone and work directly from the cloned directory:
+>
+> ```bash
+> # CORRECT — work from the cloned directory
+> git clone https://github.com/141stfighterwing-collab/CBUP.git
+> cd CBUP        # ← This is your project root
+> bun install
+>
+> # WRONG — do not nest another CBUP inside
+> cd CBUP
+> git clone https://github.com/141stfighterwing-collab/CBUP.git  # ← creates CBUP/CBUP/
+> ```
+>
+> If you accidentally created a nested directory, **delete the inner directory** and work from the outer directory.
+
+> ### ⚠️ Do NOT Change the DATABASE_URL Path
+>
+> The `.env` file contains `DATABASE_URL=file:../db/custom.db`, which is a **relative path** from the Prisma schema location (`prisma/schema.prisma`). This path resolves correctly to the `db/custom.db` file in the project root.
+>
+> ```env
+> # CORRECT — relative path from prisma/ directory
+> DATABASE_URL=file:../db/custom.db
+>
+> # WRONG — do NOT change to an absolute path
+> DATABASE_URL=file:/home/z/my-project/CBUP/db/custom.db
+> ```
+>
+> Changing to an absolute path will break database connectivity.
+
+---
+
 ## 1-Click Installation
 
 The included `install.sh` script automates the entire installation process — from system prerequisites to a running production service.
@@ -205,7 +224,6 @@ The included `install.sh` script automates the entire installation process — f
 ### Quick Install (Bare Metal)
 
 ```bash
-# Make executable and run
 chmod +x install.sh
 sudo ./install.sh
 ```
@@ -243,14 +261,13 @@ sudo ./install.sh --uninstall
 4. Clones/copies application files to `/opt/cbup`
 5. Installs Node.js dependencies
 6. Initializes the SQLite database with Prisma schema
-7. Builds the Next.js production bundle
-8. Creates a systemd service with security hardening
-9. Configures firewall rules (UFW or firewalld)
-10. Installs the `cbup` management CLI
+7. Seeds the database with default admin and sample data
+8. Builds the Next.js production bundle
+9. Creates a systemd service with security hardening
+10. Configures firewall rules (UFW or firewalld)
+11. Installs the `cbup` management CLI
 
 ### Management CLI
-
-After installation, use the `cbup` command to manage your instance:
 
 | Command | Description |
 |---------|-------------|
@@ -276,22 +293,10 @@ CBUP ships with production-ready Docker files for easy containerized deployment.
 ### Quick Start (Docker Compose)
 
 ```bash
-# Clone and start
-git clone https://github.com/141stfighterwing-collab/cyber-brief-unified-platform.git
-cd cyber-brief-unified-platform
-
+git clone https://github.com/141stfighterwing-collab/CBUP.git
+cd CBUP
 docker compose up -d
 ```
-
-The app will be available at `http://localhost:3000`.
-
-### Using the Installer
-
-```bash
-sudo ./install.sh --docker
-```
-
-The installer will: install Docker if needed, clone the repo, build the image, and start the container with health checks.
 
 ### Custom Port
 
@@ -304,18 +309,12 @@ PORT=8080 docker compose up -d
 ```bash
 docker build -t cbup:latest .
 docker run -d \
-  --name cyber-brief-up \
+  --name cbup \
   --restart unless-stopped \
-  -p 3000:3000 \
+  -p 3001:3001 \
   -v cbup-data:/app/data \
-  -e DATABASE_URL="file:/app/data/cbup.db" \
+  -e DATABASE_URL="file:/app/data/custom.db" \
   cbup:latest
-```
-
-### Development Mode (Docker)
-
-```bash
-docker compose -f docker-compose.dev.yml up --build
 ```
 
 ### Docker Management
@@ -337,32 +336,6 @@ docker compose down
 docker compose down -v
 ```
 
-### Docker Architecture
-
-The `Dockerfile` uses a **3-stage multi-stage build**:
-
-| Stage | Base Image | Purpose |
-|-------|-----------|---------|
-| `deps` | `node:20-slim` | Installs Bun and caches dependencies |
-| `builder` | `deps` | Copies source, generates Prisma client, builds Next.js standalone |
-| `runner` | `node:20-slim` | Minimal production image with tini init, non-root user, health check |
-
-### Resource Limits
-
-The `docker-compose.yml` includes sensible defaults:
-
-| Resource | Limit | Reservation |
-|----------|-------|-------------|
-| Memory | 512 MB | 128 MB |
-| CPU | 1.0 cores | 0.25 cores |
-
-### Named Volumes
-
-| Volume | Mount Path | Contents |
-|--------|-----------|----------|
-| `cbup-data` | `/app/data` | SQLite database file |
-| `cbup-logs` | `/app/logs` | Application logs |
-
 ---
 
 ## Configuration
@@ -372,24 +345,24 @@ The `docker-compose.yml` includes sensible defaults:
 Create a `.env` file in the project root:
 
 ```env
-# Database
-DATABASE_URL="file:/var/lib/cbup/cbup.db"
+# Database — MUST remain a relative path from the prisma/ directory
+DATABASE_URL="file:../db/custom.db"
 
 # Application
-NODE_ENV=production
-PORT=3000
+NODE_ENV=development
+PORT=3001
 
 # Optional: Authentication
 NEXTAUTH_SECRET="your-secret-key-here"
-NEXTAUTH_URL="http://your-domain.com"
+NEXTAUTH_URL="http://localhost:3001"
 ```
 
-### Default Install Locations
+### Default Install Locations (Production)
 
 | Path | Description |
 |------|-------------|
 | `/opt/cbup` | Application files |
-| `/var/lib/cbup/cbup.db` | SQLite database |
+| `/var/lib/cbup/` | SQLite database directory |
 | `/var/log/cbup/` | Application logs |
 | `/var/backups/cbup/` | Database backups |
 | `/etc/systemd/system/cbup.service` | Systemd service file |
@@ -410,105 +383,33 @@ NEXTAUTH_URL="http://your-domain.com"
 
 CBUP uses **SQLite** as its primary database, chosen for zero-configuration deployment, single-file portability, and excellent read performance for security data workloads.
 
-See [docs/DATABASES.md](docs/DATABASES.md) for full database documentation including:
-
-- Complete schema reference
-- Entity Relationship Diagram
-- Migration strategy
-- Backup and restore procedures
-- Performance optimization tips
-- Multi-database roadmap (PostgreSQL, MySQL)
+See [docs/DATABASES.md](docs/DATABASES.md) for full database documentation including schema reference, entity relationships, backup/restore procedures, and the multi-database roadmap.
 
 ---
 
 ## Endpoint Agent System
 
-CBUP includes cross-platform endpoint monitoring agents that can be deployed to any Windows or Linux machine from your company's admin portal. Each tenant/company gets unique, token-authenticated download URLs. Agent version **2.1.0** introduces a fully modular architecture and company-specific code signing for EXE downloads.
+CBUP includes cross-platform endpoint monitoring agents that can be deployed to any Windows or Linux machine from the admin portal. Each tenant gets unique, token-authenticated download URLs.
 
 ### Supported Platforms
 
-| Platform | Format | Agent Version | Installation |
-|---------|--------|:---:|-------------|
-| **Windows** | `.exe` (compiled) | 2.1.0 | One-liner or manual download |
-| **Windows** | `.ps1` (PowerShell) | 2.1.0 | One-liner or manual download |
-| **Windows** | `.ps1` (System Tray) | 2.1.0 | Optional GUI for status monitoring |
-| **Linux** | `.sh` (Bash) | 2.1.0 | curl one-liner or manual download |
-| **Docker** | Container | 2.1.0 | `docker run` or `docker-compose` |
+| Platform | Format | Installation |
+|---------|--------|-------------|
+| **Windows** | `.exe` (compiled) | One-liner or manual download |
+| **Windows** | `.ps1` (PowerShell) | One-liner or manual download |
+| **Windows** | `.ps1` (System Tray) | Optional GUI for status monitoring |
+| **Linux** | `.sh` (Bash) | curl one-liner or manual download |
+| **Docker** | Container | `docker run` or `docker-compose` |
 
-### Modular Agent Architecture (v2.1.0)
-
-The Windows PowerShell agent has been refactored from a 2,296-line monolith into **15 focused modules** loaded via dot-sourcing from a lightweight 336-line entry point (`CBUP-Agent.ps1`). This architecture enables easier maintenance, independent testing, and selective feature deployment.
-
-| Module | File | Purpose |
-|--------|------|---------|
-| **Core** | `CBUP-Logging.ps1` | Timestamped log output with severity levels |
-| **Core** | `CBUP-Registry.ps1` | Registry read/write helpers for persistence |
-| **Core** | `CBUP-API.ps1` | HTTP communication with retry logic and gzip |
-| **Core** | `CBUP-Registration.ps1` | Agent registration and tenant assignment |
-| **Core** | `CBUP-Service.ps1` | Windows service install/remove/control |
-| **Discovery** | `CBUP-Discovery.ps1` | Hostname, OS, hardware, network enumeration |
-| **Telemetry** | `CBUP-Telemetry.ps1` | CPU, memory, disk, network, process metrics |
-| **EDR** | `CBUP-EDR-Process.ps1` | Running process analysis and anomaly detection |
-| **EDR** | `CBUP-EDR-Service.ps1` | Windows service enumeration and risk scoring |
-| **EDR** | `CBUP-EDR-Port.ps1` | Open port scanning and suspicious port detection |
-| **EDR** | `CBUP-EDR-Autorun.ps1` | Persistence mechanism detection (registry, scheduled tasks, startup) |
-| **EDR** | `CBUP-EDR-Vulnerability.ps1` | OS updates, SSH config, firewall, SUID assessment |
-| **EDR** | `CBUP-EDR-Full.ps1` | Orchestrator that runs all 5 EDR scan types |
-| **C2** | `CBUP-C2Commands.ps1` | Command polling, shell execution, scan triggers |
-| **Signing** | `CBUP-Signature.ps1` | Company-specific SHA256 fingerprinting and verification |
-
-### Company-Specific Signature System
-
-v2.1.0 introduces a per-company code signing and verification system for Windows EXE downloads:
-
-- **SHA256 Fingerprinting**: Each tenant/company is issued a unique cryptographic signature embedded during EXE build
-- **Registry Persistence**: Signature stored in `HKLM:\SOFTWARE\CBUP\Signature` for tamper-resistant verification
-- **Runtime Verification**: Agent validates its signature on startup against the server-issued fingerprint
-- **Build Integration**: `build-exe.ps1` automatically embeds the tenant signature into compiled EXEs
-- **Download API**: The `/api/agents/install-script?platform=windows-exe` endpoint now returns tenant-specific signed builds
-
-### Agent Features
+### Agent Capabilities
 
 - **System Discovery**: Hostname, domain, OS, serial number, BIOS, CPU, RAM, network, disks
 - **Real-Time Telemetry**: CPU, memory, disk I/O, network I/O, top processes, TCP connections, uptime
-- **5 EDR Scan Types**: Process analysis, service enumeration, port scan, autorun/persistence, vulnerability assessment
+- **5 EDR Scan Types**: Process analysis, service enumeration, port scanning, autorun/persistence detection, vulnerability assessment
 - **Command & Control (C2)**: Remote shell execution, EDR scan triggers, ping, restart
-- **Windows Service**: Installs as `CBUPAgent` service with registry persistence
-- **Linux systemd**: Security-hardened service with auto-restart
 - **Company Signatures**: Per-tenant SHA256 fingerprinting for EXE integrity verification
 - **Gzip Compression**: For large telemetry payloads
 - **Exponential Backoff Retry**: Resilient API communication
-
-### v2.1.0 Bug Fixes
-
-1. **NullReferenceException in Process Scan** — Fixed crash when `ExecutablePath` is null during system process path validation (null guard added)
-2. **Missing Type Annotation** — Fixed `[hashtable]` parameter type for C2 command handler
-3. **Pipeline Expression in Hashtable** — Fixed uptime calculation that used broken pipe syntax inside hashtable literal
-4. **Missing Math Expression** — Fixed `$([math]::Round(...))` string interpolation in file size error message
-5. **Password Policy Variable Error** — Fixed reference to undefined `$maxLen` variable in password policy check
-6. **Unsafe Type Cast** — Fixed `[int]` cast on non-integer strings causing crashes in password length check
-7. **Over-escaped Regex Patterns** — Fixed regex patterns in EDR scans that never matched due to double backslash escaping
-
-### Download from Company Portal
-
-Each tenant's admin portal provides pre-authenticated download URLs with company-specific signatures embedded:
-
-```
-# Windows EXE (signed, build locally with tenant signature)
-GET /api/agents/install-script?platform=windows-exe&token=TENANT_TOKEN
-
-# Windows PowerShell
-GET /api/agents/install-script?platform=windows&token=TENANT_TOKEN
-
-# Windows System Tray
-GET /api/agents/install-script?platform=windows-tray&token=TENANT_TOKEN
-
-# Linux
-GET /api/agents/install-script?platform=linux&token=TENANT_TOKEN
-
-# Docker
-GET /api/agents/install-script?platform=docker&token=TENANT_TOKEN
-```
 
 ### Quick Install Examples
 
@@ -530,139 +431,83 @@ docker run -d --name cbup-agent --restart unless-stopped \
   cbup/agent:latest
 ```
 
-### Windows EXE Build (Signed)
-
-The Windows agent can be compiled to a standalone, company-signed `.exe` using the included `build-exe.ps1` script. The signature is derived from the tenant token and embedded into the binary:
-
-```powershell
-# Download the build script from your portal (includes tenant signature)
-Invoke-WebRequest -Uri 'https://YOUR-PORTAL/api/agents/install-script?platform=windows-exe&token=TENANT_TOKEN' -OutFile 'build-exe.ps1'
-
-# Build the signed EXE (requires ps2exe module)
-.\build-exe.ps1
-
-# Install the compiled agent
-.\dist\CBUP-Agent.exe -ServerUrl 'https://YOUR-PORTAL' -Token TENANT_TOKEN -Install
-```
-
-The signature is verified at agent startup against the server-issued fingerprint to ensure binary integrity.
-
 See [docs/HOWTO.md](docs/HOWTO.md#endpoint-agent-deployment) for the full deployment guide.
-
----
-
-## Pricing Tiers
-
-| Feature | Free | Starter | Pro | Enterprise |
-|---------|------|---------|-----|------------|
-| **Price** | $0/mo | $29/mo | $99/mo | Custom |
-| **Users** | 1 | Up to 5 | Up to 25 | Unlimited |
-| **Daily Alerts** | 3 headline | Full brief | Full + real-time | Custom feeds |
-| **Briefings** | Weekly summary | Daily brief | Daily + on-demand | Custom format |
-| **Workflow** | — | Basic tasks | Full Kanban | SIEM integration |
-| **Monitoring** | — | Basic dashboard | Full analytics | Custom dashboards |
-| **Compliance** | — | Basic reports | Full reports | SOC 2, HIPAA, PCI-DSS |
-| **API Access** | — | — | Full REST API | Webhooks + API |
-| **Deployment** | Cloud | Cloud | Cloud + on-prem | On-prem + air-gapped |
-| **Support** | Community | Email | Priority (24h SLA) | Dedicated + SLA guarantees |
-| **Data Retention** | 7 days | 90 days | 1 year | Unlimited |
 
 ---
 
 ## Project Structure
 
 ```
-cyber-brief-unified-platform/
-├── Dockerfile                    # Production multi-stage Docker build
-├── Dockerfile.dev                # Development Docker build
-├── docker-compose.yml            # Production Docker Compose
-├── docker-compose.dev.yml        # Development Docker Compose
-├── .dockerignore                 # Docker build exclusions
-├── install.sh                    # 1-click installer script
-├── README.md                     # This file
-├── LICENSE                       # MIT License
-├── docs/                         # Documentation
-│   ├── DATABASES.md              # Database documentation
-│   ├── HOWTO.md                  # How-to guides
-│   ├── FAQ.md                    # Frequently asked questions
-│   ├── CHANGELOG.md              # Version history
-│   ├── TEST_MATRIX.md            # OS compatibility test matrix
-│   └── CONTRIBUTING.md           # Contributing guidelines
-├── agent/                        # Endpoint monitoring agents
-│   ├── CBUP-Agent.ps1            # Windows PowerShell agent (entry point)
-│   ├── CBUP-Agent.ps1.bak        # Backup of monolith agent (pre-v2.1.0)
-│   ├── CBUP-Agent-Tray.ps1       # Windows system tray application
-│   ├── build-exe.ps1             # Windows EXE build script (ps2exe)
-│   ├── cbup-agent-linux.sh        # Linux Bash agent
-│   └── modules/                  # Modular PowerShell agent components
-│       ├── CBUP-Logging.ps1      # Logging subsystem
-│       ├── CBUP-Registry.ps1     # Registry helpers
-│       ├── CBUP-API.ps1          # HTTP communication
-│       ├── CBUP-Discovery.ps1    # System discovery
-│       ├── CBUP-Telemetry.ps1    # Telemetry collection
-│       ├── CBUP-EDR-Process.ps1  # EDR process scan
-│       ├── CBUP-EDR-Service.ps1  # EDR service scan
-│       ├── CBUP-EDR-Port.ps1     # EDR port scan
-│       ├── CBUP-EDR-Autorun.ps1  # EDR autorun/persistence scan
-│       ├── CBUP-EDR-Vulnerability.ps1 # EDR vulnerability scan
-│       ├── CBUP-EDR-Full.ps1     # EDR full scan orchestrator
-│       ├── CBUP-C2Commands.ps1   # C2 command handler
-│       ├── CBUP-Service.ps1      # Windows service management
-│       ├── CBUP-Registration.ps1 # Agent registration
-│       └── CBUP-Signature.ps1    # Company signature system
-├── prisma/
-│   └── schema.prisma             # Database schema
-├── public/
-│   ├── logo.svg                  # CBUP logo
-│   └── robots.txt                # Search engine config
+CBUP/
 ├── src/
-│   ├── app/
-│   │   ├── layout.tsx            # Root layout with metadata
-│   │   ├── page.tsx              # Main SPA entry point
-│   │   ├── globals.css           # Global styles + cyber theme
-│   │   └── api/
-│   │       ├── auth/signup/      # User registration endpoint
-│   │       ├── alerts/           # Alert listing endpoint
-│   │       ├── tasks/            # Task CRUD endpoints
-│   │       ├── briefs/latest/    # Latest brief endpoint
-│   │       └── dashboard/stats/  # Dashboard statistics
+│   ├── app/                        # Next.js App Router pages and API routes
+│   │   ├── layout.tsx              # Root layout with metadata
+│   │   ├── page.tsx                # Main SPA entry point
+│   │   ├── globals.css             # Global styles + cyber theme
+│   │   └── api/                    # REST API endpoints
+│   │       ├── auth/signup/        # User registration
+│   │       ├── agents/             # Agent registration, telemetry, commands, EDR, downloads
+│   │       ├── alerts/             # Alert listing and management
+│   │       ├── tasks/              # Task CRUD
+│   │       ├── briefs/             # Security briefs
+│   │       ├── reports/            # Report generation and PDF export
+│   │       ├── tenants/            # Tenant management
+│   │       ├── dashboard/stats/    # Dashboard statistics
+│   │       └── admin/              # Admin and super-admin endpoints
 │   ├── components/
-│   │   ├── landing/              # Landing page components
-│   │   │   ├── hero.tsx
-│   │   │   ├── features.tsx
-│   │   │   ├── pricing.tsx
-│   │   │   ├── sample-preview.tsx
-│   │   │   └── testimonials.tsx
-│   │   ├── auth/
-│   │   │   └── signup-form.tsx   # Auth form (login/signup)
-│   │   ├── dashboard/
-│   │   │   └── dashboard-view.tsx
-│   │   ├── alerts/
-│   │   │   └── alerts-view.tsx   # Alert management
-│   │   ├── briefs/
-│   │   │   └── brief-view.tsx    # Daily brief display
-│   │   ├── monitoring/
-│   │   │   └── monitoring-view.tsx
-│   │   ├── workflow/
-│   │   │   └── workflow-view.tsx # Kanban board
-│   │   ├── shared/
-│   │   │   ├── navbar.tsx
-│   │   │   └── footer.tsx
-│   │   └── ui/                   # shadcn/ui components
-│   ├── lib/
-│   │   ├── store.ts              # Zustand global state
-│   │   ├── db.ts                 # Prisma database client
-│   │   ├── mock-data.ts          # Seed data for alerts/tasks/briefs
-│   │   └── utils.ts              # Utility functions
-│   └── hooks/                    # Custom React hooks
-├── Caddyfile                     # Reverse proxy config
-├── next.config.ts                # Next.js configuration
-├── tailwind.config.ts            # Tailwind CSS configuration
-├── components.json               # shadcn/ui configuration
-├── tsconfig.json                 # TypeScript configuration
-├── eslint.config.mjs             # ESLint configuration
-├── package.json                  # Dependencies and scripts
-└── bun.lock                      # Lock file
+│   │   ├── landing/                # Landing page (hero, features, pricing, testimonials)
+│   │   ├── auth/                   # Login and signup forms
+│   │   ├── dashboard/              # Dashboard view
+│   │   ├── agents/                 # Agent management, detail panel, C2 commands, deployment
+│   │   ├── alerts/                 # Alert monitoring view
+│   │   ├── briefs/                 # Security briefs view
+│   │   ├── monitoring/             # Monitoring and analytics view
+│   │   ├── workflow/               # Kanban task board
+│   │   ├── reports/                # Report list and detail views
+│   │   ├── admin/                  # Super-admin dashboard
+│   │   ├── shared/                 # Shared navbar and footer
+│   │   └── ui/                     # shadcn/ui base components
+│   ├── lib/                        # Utilities, store, database client, auth checks
+│   │   ├── store.ts                # Zustand global state management
+│   │   ├── db.ts                   # Prisma database client
+│   │   ├── auth-check.ts           # Authentication and authorization helpers
+│   │   ├── security-utils.ts       # Security utility functions
+│   │   ├── rate-limit.ts           # API rate limiting
+│   │   ├── websocket.ts            # WebSocket support
+│   │   ├── mock-data.ts            # Seed data for alerts/tasks/briefs
+│   │   └── utils.ts                # General utility functions
+│   └── hooks/                      # Custom React hooks
+├── prisma/
+│   ├── schema.prisma               # SQLite database schema (default)
+│   ├── schema.postgresql.prisma    # PostgreSQL schema variant
+│   ├── schema.mysql.prisma         # MySQL schema variant
+│   └── seed.ts                     # Database seed script (admin + sample data)
+├── db/                             # SQLite database files (auto-generated)
+│   └── custom.db
+├── agent/                          # Endpoint monitoring agents
+│   ├── CBUP-Agent.ps1              # Windows PowerShell agent (entry point)
+│   ├── CBUP-Agent-Tray.ps1         # Windows system tray application
+│   ├── build-exe.ps1               # Windows EXE build script (ps2exe)
+│   ├── cbup-agent-linux.sh         # Linux Bash agent
+│   └── modules/                    # Modular PowerShell agent components (15 modules)
+├── docs/                           # Documentation
+│   ├── HOWTO.md                    # How-to guides
+│   ├── FAQ.md                      # Frequently asked questions
+│   ├── CHANGELOG.md                # Version history
+│   ├── DATABASES.md                # Database documentation
+│   ├── CONTRIBUTING.md             # Contributing guidelines
+│   ├── PATCHING.md                 # Patch notes and upgrade instructions
+│   └── TEST_MATRIX.md              # OS compatibility test matrix
+├── Dockerfile                      # Production multi-stage Docker build
+├── docker-compose.yml              # Production Docker Compose
+├── Caddyfile                       # Reverse proxy config
+├── install.sh                      # 1-click installer script
+├── package.json                    # Dependencies and scripts
+├── next.config.ts                  # Next.js configuration
+├── tailwind.config.ts              # Tailwind CSS configuration
+├── tsconfig.json                   # TypeScript configuration
+├── components.json                 # shadcn/ui configuration
+└── LICENSE                         # MIT License
 ```
 
 ---
@@ -680,64 +525,48 @@ Create a new user account.
   "name": "John Doe",
   "email": "john@company.com",
   "company": "Acme Corp",
-  "password": "securepassword",
-  "tier": "free"
+  "password": "securepassword"
 }
 ```
 
 **Response:** `201 Created`
-```json
-{
-  "id": "clx...",
-  "email": "john@company.com",
-  "name": "John Doe",
-  "company": "Acme Corp",
-  "tier": "free",
-  "createdAt": "2025-01-15T08:30:00.000Z"
-}
-```
+
+### Agents
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/agents/register` | POST | Register a new endpoint agent |
+| `/api/agents/heartbeat` | POST | Agent heartbeat check-in |
+| `/api/agents/[id]/telemetry` | POST | Submit agent telemetry data |
+| `/api/agents/[id]/command` | POST | Issue C2 command to agent |
+| `/api/agents/command-result` | POST | Agent returns command execution results |
+| `/api/agents/edr-scan` | POST | Submit EDR scan results |
+| `/api/agents/list` | GET | List agents for a tenant |
+| `/api/agents/install-script` | GET | Get tenant-specific agent install script |
+| `/api/agents/download-exe` | GET | Download Windows EXE agent build |
 
 ### Alerts
 
 #### `GET /api/alerts?severity=critical`
 List security alerts with optional severity filter.
 
-**Query Parameters:**
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `severity` | string | Filter by: `critical`, `high`, `medium`, `low` |
 
-### Tasks
+### Reports
 
-#### `GET /api/tasks`
-List all workflow tasks.
-
-#### `POST /api/tasks`
-Create a new task.
-
-**Request Body:**
-```json
-{
-  "title": "Patch Apache Log4j",
-  "description": "Update all production servers",
-  "priority": "critical",
-  "assignee": "Sarah Chen",
-  "dueDate": "2025-01-16T23:59:00.000Z"
-}
-```
-
-#### `PATCH /api/tasks/[id]`
-Update a task (change status, priority, etc.).
-
-### Briefs
-
-#### `GET /api/briefs/latest`
-Retrieve the latest published threat intelligence brief.
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/reports` | GET | List reports |
+| `/api/reports/generate` | POST | Generate a new security report |
+| `/api/reports/[id]` | GET | Get report details |
+| `/api/reports/[id]/pdf` | GET | Export report as PDF |
 
 ### Dashboard
 
 #### `GET /api/dashboard/stats`
-Retrieve aggregated statistics for the dashboard (active alerts, compliance score, threat level).
+Retrieve aggregated statistics (active alerts, agent counts, compliance score, threat level).
 
 ---
 
@@ -749,13 +578,13 @@ Retrieve aggregated statistics for the dashboard (active alerts, compliance scor
 # Install dependencies
 bun install
 
-# Generate Prisma client
-bun run db:generate
-
-# Push schema to database
+# Set up the database
 bun run db:push
 
-# Start dev server
+# Seed with default admin and sample data
+bunx tsx prisma/seed.ts
+
+# Start dev server (port 3001)
 bun run dev
 ```
 
@@ -791,49 +620,16 @@ bunx tsc --noEmit
 
 ---
 
-## Versioning & Patching
-
-CBUP follows [Semantic Versioning](https://semver.org/) (`MAJOR.MINOR.PATCH`).
-
-- **MAJOR**: Breaking changes (API changes, schema migrations, UI overhauls)
-- **MINOR**: New features (new views, API endpoints, integrations)
-- **PATCH**: Bug fixes, security patches, documentation updates
-
-See [docs/CHANGELOG.md](docs/CHANGELOG.md) for the full version history.
-
-### Update Process
-
-```bash
-# Using the management CLI (recommended)
-cbup update
-
-# Manual update
-cd /opt/cbup
-git pull origin main
-bun install
-bun run db:push
-bun run build
-sudo systemctl restart cbup
-```
-
----
-
 ## Security Considerations
-
-### v2.2.0 Security Overhaul
-
-CBUP v2.2.0 includes a comprehensive security audit and remediation addressing 13 vulnerabilities (7 Critical, 4 High, 2 Medium). Full details are available in the CBUP Security Audit Report.
 
 ### Security Controls
 
-- **Authentication**: Admin-only API endpoints protected via `X-Admin-Token` header or session tokens
+- **Role-Based Access Control**: Three tiers — `user`, `admin`, `super_admin` — enforced across all API routes
 - **Rate Limiting**: Sliding-window rate limiter on all critical endpoints (install-script, downloads, signup, commands)
 - **Password Security**: Passwords hashed with scrypt (16-byte random salt, 64-byte key derivation)
 - **Agent Token Encryption**: Windows DPAPI encryption for registry-stored credentials
-- **C2 Command Sandboxing**: PowerShell AST-based allowlisting for remote script execution (60+ safe cmdlets)
-- **File Collection Restrictions**: Path blocklist for sensitive files, 10MB maximum transfer size
-- **Update Integrity**: SHA256 hash verification for all agent software updates
-- **TLS Certificate Pinning**: Optional certificate thumbprint pinning for agent-portal communication
+- **C2 Command Sandboxing**: PowerShell AST-based allowlisting for remote script execution
+- **File Collection Restrictions**: Path blocklist for sensitive files, 10 MB maximum transfer size
 - **Cryptographic Signatures**: HMAC-SHA256 with server-side secret key for tenant identity verification
 - **Input Validation**: Strict whitelists and regex validation on all user-supplied parameters
 - **Security Headers**: CSP, X-Frame-Options, X-Content-Type-Options, Referrer-Policy on all API responses
@@ -843,10 +639,8 @@ CBUP v2.2.0 includes a comprehensive security audit and remediation addressing 1
 ## Roadmap
 
 - [ ] PostgreSQL and MySQL support for enterprise deployments
-- [ ] NextAuth.js authentication with SSO/SAML/OIDC
 - [ ] WebSocket real-time alert streaming
 - [ ] PDF/Email briefing export
-- [ ] Role-based access control (RBAC)
 - [ ] SIEM integration (Splunk, Elastic, Sentinel)
 - [ ] Vulnerability scanner integration (Nessus, OpenVAS)
 - [ ] Custom threat feed aggregation
@@ -865,6 +659,6 @@ This project is licensed under the MIT License. See the [LICENSE](LICENSE) file 
 
 **Cyber Brief Unified Platform** — One platform. Every threat covered.
 
-Built with Next.js, TypeScript, and Tailwind CSS.
+Built with Next.js 16, TypeScript, and Tailwind CSS 4.
 
 </div>

@@ -74,7 +74,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   isAuthenticated: false,
 
   // Auth form state
-  authMode: 'signup',
+  authMode: 'login',
   setAuthMode: (mode) => set({ authMode: mode }),
 
   // Task management

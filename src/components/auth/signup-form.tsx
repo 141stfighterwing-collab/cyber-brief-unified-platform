@@ -75,7 +75,13 @@ export function AuthForm() {
 
       if (!res.ok) {
         const data = await res.json()
-        setError(data.error || 'Login failed')
+        if (res.status === 404) {
+          setError('No account found with this email. Try signing up first, or use the default admin account.')
+        } else if (res.status === 429) {
+          setError('Too many attempts. Please wait a moment and try again.')
+        } else {
+          setError(data.error || 'Login failed')
+        }
         return
       }
 
@@ -217,6 +223,13 @@ export function AuthForm() {
               {error && (
                 <div className="text-xs text-red-500 bg-red-500/10 p-2.5 rounded-lg">
                   {error}
+                </div>
+              )}
+
+              {authMode === 'login' && (
+                <div className="text-xs text-muted-foreground bg-muted/50 p-2.5 rounded-lg border border-border/30">
+                  <span className="font-medium">Default admin:</span>{' '}
+                  admin@cbup.io / CBUPadmin2024!
                 </div>
               )}
 

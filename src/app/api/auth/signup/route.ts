@@ -158,7 +158,8 @@ export async function POST(request: NextRequest) {
       if (password) {
         const valid = verifyPassword(password, existing.password)
         if (!valid) {
-          return NextResponse.json({ error: 'Invalid credentials' }, { status: 401 })
+          console.warn(`[CBUP AUTH] Failed login attempt for: ${existing.email} from IP ${clientIp}`)
+          return NextResponse.json({ error: 'Invalid email or password' }, { status: 401 })
         }
 
         // Auto-migrate legacy plaintext passwords
@@ -171,7 +172,7 @@ export async function POST(request: NextRequest) {
           console.log(`[CBUP SECURITY] Auto-migrated plaintext password to scrypt for: ${existing.email}`)
         }
       } else {
-        return NextResponse.json({ error: 'Password is required' }, { status: 401 })
+        return NextResponse.json({ error: 'Password is required' }, { status: 400 })
       }
 
       return NextResponse.json({
@@ -186,7 +187,8 @@ export async function POST(request: NextRequest) {
 
     // ─── SIGNUP FLOW (new user) ──────────────────────────────────────────
     if (isExplicitLogin) {
-      return NextResponse.json({ error: 'No account found with this email' }, { status: 401 })
+      console.warn(`[CBUP AUTH] Login attempt for non-existent user: ${email} from IP ${clientIp}`)
+      return NextResponse.json({ error: 'No account found with this email' }, { status: 404 })
     }
 
     // Create new user
