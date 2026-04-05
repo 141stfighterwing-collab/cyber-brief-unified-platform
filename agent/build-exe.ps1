@@ -6,7 +6,7 @@
     Compiles CBUP-Agent.ps1 into a standalone .exe using the ps2exe module.
     Supports console mode, windows (hidden) mode, and custom icons.
 .NOTES
-    Version:    2.1.0
+    Version:    2.2.0
     Author:     CBUP Security Engineering
     Project:    Cyber Brief Unified Platform
 
@@ -46,7 +46,7 @@ param(
 # CONFIGURATION
 # =============================================================================
 
-$script:AgentVersion = "2.1.0"
+$script:AgentVersion = "2.2.0"
 $script:ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $script:SourceScript = Join-Path $script:ScriptDir "CBUP-Agent.ps1"
 $script:DefaultOutputDir = Join-Path $script:ScriptDir "dist"

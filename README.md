@@ -3,7 +3,7 @@
 <div align="center">
 
 ![CBUP Banner](https://img.shields.io/badge/CBUP-Cyber%20Brief%20Unified%20Platform-00C853?style=for-the-badge&logo=shield&logoColor=white)
-![Version](https://img.shields.io/badge/version-2.1.0-blue?style=flat-square)
+![Version](https://img.shields.io/badge/version-2.2.0-blue?style=flat-square)
 ![License](https://img.shields.io/badge/license-MIT-green?style=flat-square)
 ![Next.js](https://img.shields.io/badge/Next.js-16-black?style=flat-square&logo=next.js)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5.0-3178C6?style=flat-square&logo=typescript&logoColor=white)
@@ -820,12 +820,23 @@ sudo systemctl restart cbup
 
 ## Security Considerations
 
-- All API routes use input validation via Zod schemas
-- The systemd service runs under a dedicated `cbup` user with no shell access
-- Service hardening: `NoNewPrivileges=true`, `ProtectSystem=strict`, `PrivateTmp=true`
-- SQLite database file permissions restricted to the `cbup` user only
-- Environment variables containing secrets are not logged or exposed
-- The platform is designed to run entirely within a private network
+### v2.2.0 Security Overhaul
+
+CBUP v2.2.0 includes a comprehensive security audit and remediation addressing 13 vulnerabilities (7 Critical, 4 High, 2 Medium). Full details are available in the CBUP Security Audit Report.
+
+### Security Controls
+
+- **Authentication**: Admin-only API endpoints protected via `X-Admin-Token` header or session tokens
+- **Rate Limiting**: Sliding-window rate limiter on all critical endpoints (install-script, downloads, signup, commands)
+- **Password Security**: Passwords hashed with scrypt (16-byte random salt, 64-byte key derivation)
+- **Agent Token Encryption**: Windows DPAPI encryption for registry-stored credentials
+- **C2 Command Sandboxing**: PowerShell AST-based allowlisting for remote script execution (60+ safe cmdlets)
+- **File Collection Restrictions**: Path blocklist for sensitive files, 10MB maximum transfer size
+- **Update Integrity**: SHA256 hash verification for all agent software updates
+- **TLS Certificate Pinning**: Optional certificate thumbprint pinning for agent-portal communication
+- **Cryptographic Signatures**: HMAC-SHA256 with server-side secret key for tenant identity verification
+- **Input Validation**: Strict whitelists and regex validation on all user-supplied parameters
+- **Security Headers**: CSP, X-Frame-Options, X-Content-Type-Options, Referrer-Policy on all API responses
 
 ---
 

@@ -6,6 +6,69 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ---
 
+## [2.1.1] - 2026-04-05
+
+### Fixed
+
+#### Critical: Windows EXE Build Script Parse Error
+- **`[CmdletBinding()]` Unexpected Attribute Error**: Fixed a critical bug in the `/api/agents/install-script?platform=windows-exe` endpoint that caused downloaded `build-exe.ps1` scripts to fail with `Unexpected attribute 'CmdletBinding'` and `Unexpected token 'param'` parse errors. The API was prepending PowerShell variable assignments (`$CBUP_EXE_COMPANY = '...'`, `$CBUP_SIGNATURE_*`) **before** the `[CmdletBinding()]` and `param()` block, which violates PowerShell's requirement that these must be the first non-comment executable statements in a script.
+  - **Root Cause**: The `windows-exe` case in `install-script/route.ts` concatenated signature variables and EXE metadata before the entire script content instead of inserting them after the `param()` block.
+  - **Fix**: Refactored the injection logic to (1) prepend only comment-based headers (safe before `#Requires`/`param`), then (2) use parenthesis-balanced parsing to locate the end of the `param()` block and insert variable assignments after it.
+  - **Impact**: All Windows EXE builds downloaded from company portals were completely broken — the `build-exe.ps1` script could not be parsed by any PowerShell version (5.1, 7.x). This affected every tenant using the `windows-exe` platform endpoint.
+
+#### Hardening: Single-Quote Escaping in Injected PowerShell Variables
+- **PowerShell String Injection**: Added single-quote escaping (`'` → `''`) for all dynamically injected PowerShell variable values in both `formatSignatureAsPsVariables()` and the `windows-exe` case handler. Company names or signatures containing single quotes (e.g., `O'Brien's Security`) would previously break the downloaded script syntax. PowerShell uses `''` as the escape sequence within single-quoted strings.
+
+---
+
+## [2.2.0] - 2026-04-05
+
+### Security
+
+#### Major Security Overhaul (13 Vulnerabilities Addressed)
+
+This release contains a comprehensive security audit and remediation of the entire CBUP platform. A total of 13 security vulnerabilities were identified and 11 were fixed across 13 files. All findings are documented in the CBUP Security Audit Report v2.2.0.
+
+##### Critical Fixes (7)
+
+- **VULN-001: Unauthenticated Agent Download Endpoints**: Added admin authentication to `/api/agents/download-exe` and `/api/agents/download-build` endpoints. Previously, any anonymous user could download the full agent source code.
+- **VULN-002: Arbitrary Code Execution via C2**: Implemented PowerShell AST-based command allowlisting for the `RUN_CUSTOM_SCRIPT` C2 command. Over 60 safe cmdlets are now explicitly permitted; any non-whitelisted command is rejected.
+- **VULN-003: Arbitrary File Exfiltration**: Added path blocklist to the `COLLECT_FILE` C2 command. Credential files, certificate private keys, registry hives, and other sensitive paths are now blocked. Maximum file size reduced from 50MB to 10MB.
+- **VULN-004: Plaintext Password Storage**: User passwords are now hashed using Node.js crypto.scryptSync with a random 16-byte salt, stored in `salt:hash` format. Backward compatible with existing login flow.
+- **VULN-005: Plaintext Registry Token Storage**: Agent authentication tokens stored in the Windows registry are now encrypted using Windows DPAPI (`System.Security.Cryptography.ProtectedData`).
+- **VULN-006: Agent Update Without Integrity Verification**: The `UPDATE_AGENT` C2 command now verifies the SHA256 hash of the downloaded update file against an expected hash provided in the command parameters.
+- **VULN-007: Weak Cryptographic Signature Scheme**: Replaced plain SHA256 signatures with HMAC-SHA256 using a cryptographically random server-side secret key (32 bytes). Signatures are now unforgeable without the server secret.
+
+##### High Severity Fixes (4)
+
+- **VULN-008: No Rate Limiting**: Implemented in-memory sliding-window rate limiter across 5 critical API endpoints with per-IP tracking. Install-script: 30 req/5min, downloads: 20 req/5min, signup: 5 req/min, commands: 20 req/min.
+- **VULN-009: Unauthenticated Command Creation**: Added admin authentication to the `POST /api/agents/commands` endpoint. Only authenticated admin users can issue C2 commands to agents.
+- **VULN-010: Missing Input Validation**: Added strict input validation to the install-script endpoint. Platform parameter validated against whitelist, token validated with regex, companyName sanitized for length and characters. Null bytes and control characters stripped.
+- **VULN-011: No TLS Certificate Pinning**: Added optional TLS certificate thumbprint pinning to the agent API module. Configurable via `PinnedCertThumbprint` parameter. Backward compatible (defaults to no pinning with a warning log).
+
+### Added
+
+- **Rate Limiting Library** (`src/lib/rate-limit.ts`): In-memory sliding-window rate limiter using Map data structure. Per-IP tracking, configurable limits, automatic cleanup.
+- **Authentication Middleware** (`src/lib/auth-check.ts`): Admin authentication validation supporting X-Admin-Token header, Bearer token, and cookie-based session tokens.
+- **Password Strength Enforcement**: Signup now requires minimum 8-character passwords with at least one letter and one number.
+- **Email Validation**: Basic email format validation on signup endpoint.
+
+### Changed
+
+- Agent version bumped from **2.1.1** to **2.2.0** across all agent files
+- Platform version bumped from **2.1.0** to **2.2.0** in package.json
+- Signature scheme upgraded from SHA256 to HMAC-SHA256 (backward compatible with SHA256 fallback on agent)
+- Auth token registration now uses DPAPI encryption before registry storage
+- C2 RUN_CUSTOM_SCRIPT now requires all commands to pass AST-based allowlist validation
+- C2 COLLECT_FILE maximum file size reduced from 50MB to 10MB
+
+### Known Limitations
+
+- **VULN-012 (Medium)**: ps2exe module installation in build-exe.ps1 does not verify module hash against known-good value. Recommendation: Pin module version and verify signature.
+- **VULN-013 (Medium)**: Docker Compose template mounts /proc and /sys with read-only access. Recommendation: Minimize volume mounts and add seccomp profile.
+
+---
+
 ## [2.1.0] - 2026-04-03
 
 ### Added

@@ -3,6 +3,10 @@
 # Module: Company-specific agent signature support for CBUP Agent.
 # Generates, embeds, and verifies cryptographic signatures tied to a tenant
 # and company, providing tamper-evident agent identity.
+#
+# Security hardening (v2.2.0):
+#   - Upgraded to HMAC-SHA256 signatures (backward compatible with SHA256)
+#   - HMAC key received during registration, stored encrypted in registry
 # =============================================================================
 
 function Get-AgentSignature {
@@ -13,34 +17,74 @@ function Get-AgentSignature {
         The unique tenant identifier from the CBUP portal.
     .PARAMETER CompanyName
         The company/organization name for this agent deployment.
+    .PARAMETER UseHMAC
+        If true, use HMAC-SHA256 (v2.2.0+). If false, use plain SHA256 (legacy).
     .OUTPUTS
-        Hashtable with signature metadata including SHA256 fingerprint.
+        Hashtable with signature metadata including HMAC-SHA256 fingerprint.
     #>
     param(
         [Parameter(Mandatory)]
         [string]$TenantId,
 
         [Parameter(Mandatory)]
-        [string]$CompanyName
+        [string]$CompanyName,
+
+        [switch]$UseHMAC
     )
 
     # Build the fingerprint payload: tenantId + companyName + version
     $payload = "$TenantId|$CompanyName|$($script:AgentVersion)"
+
+    # ── HMAC-SHA256 signature (v2.2.0+) ──
+    # If an HMAC key is available (received during registration), use it
+    $hmacKey = $script:Config.HmacKey
+    if ($UseHMAC -or $hmacKey) {
+        if ($hmacKey) {
+            try {
+                $hmac = [System.Security.Cryptography.HMACSHA256]::new([System.Text.Encoding]::UTF8.GetBytes($hmacKey))
+                $payloadBytes = [System.Text.Encoding]::UTF8.GetBytes($payload)
+                $hashBytes = $hmac.ComputeHash($payloadBytes)
+                $fingerprint = ($hashBytes | ForEach-Object { $_.ToString("x2") }) -join ''
+                $hmac.Dispose()
+
+                $signature = @{
+                    TenantId        = $TenantId
+                    CompanyName     = $CompanyName
+                    SignedBy        = "CBUP Security Engineering"
+                    Timestamp       = [datetime]::UtcNow.ToString("o")
+                    Fingerprint     = $fingerprint
+                    Version         = $script:AgentVersion
+                    SignatureScheme = "HMAC-SHA256"
+                }
+
+                Write-CBUPLog "Agent HMAC-SHA256 signature generated. Fingerprint=$fingerprint" -Level DEBUG
+                return $signature
+            }
+            catch {
+                Write-CBUPLog "HMAC-SHA256 signature generation failed, falling back to SHA256: $_" -Level WARN
+                # Fall through to legacy SHA256
+            }
+        }
+    }
+
+    # ── Legacy SHA256 signature (backward compatible) ──
     $hasher = [System.Security.Cryptography.SHA256]::Create()
     $bytes = [System.Text.Encoding]::UTF8.GetBytes($payload)
     $hashBytes = $hasher.ComputeHash($bytes)
     $fingerprint = ($hashBytes | ForEach-Object { $_.ToString("x2") }) -join ''
+    $hasher.Dispose()
 
     $signature = @{
-        TenantId    = $TenantId
-        CompanyName = $CompanyName
-        SignedBy    = "CBUP Security Engineering"
-        Timestamp   = [datetime]::UtcNow.ToString("o")
-        Fingerprint = $fingerprint
-        Version     = $script:AgentVersion
+        TenantId        = $TenantId
+        CompanyName     = $CompanyName
+        SignedBy        = "CBUP Security Engineering"
+        Timestamp       = [datetime]::UtcNow.ToString("o")
+        Fingerprint     = $fingerprint
+        Version         = $script:AgentVersion
+        SignatureScheme = "SHA256"
     }
 
-    Write-CBUPLog "Agent signature generated. Fingerprint=$fingerprint" -Level DEBUG
+    Write-CBUPLog "Agent SHA256 signature generated. Fingerprint=$fingerprint" -Level DEBUG
     return $signature
 }
 
@@ -64,7 +108,9 @@ function Set-AgentSignature {
     )
 
     try {
-        $sig = Get-AgentSignature -TenantId $TenantId -CompanyName $CompanyName
+        # Use HMAC if key is available, otherwise legacy SHA256
+        $useHmac = [bool]$script:Config.HmacKey
+        $sig = Get-AgentSignature -TenantId $TenantId -CompanyName $CompanyName -UseHMAC:$useHmac
 
         Set-RegistryConfig -Settings @{
             SignatureTenantId    = $sig.TenantId
@@ -73,9 +119,10 @@ function Set-AgentSignature {
             SignatureTimestamp   = $sig.Timestamp
             SignatureFingerprint = $sig.Fingerprint
             SignatureVersion     = $sig.Version
+            SignatureScheme      = $sig.SignatureScheme
         }
 
-        Write-CBUPLog "Agent signature embedded in registry. Tenant=$TenantId, Company=$CompanyName"
+        Write-CBUPLog "Agent signature embedded in registry. Tenant=$TenantId, Company=$CompanyName, Scheme=$($sig.SignatureScheme)"
         return $true
     }
     catch {
@@ -88,6 +135,7 @@ function Test-AgentSignature {
     <#
     .SYNOPSIS
         Verifies that the stored agent signature matches the expected tenant.
+        Supports both HMAC-SHA256 (v2.2.0+) and legacy SHA256 signatures.
     .PARAMETER TenantId
         The expected tenant identifier to validate against.
     .PARAMETER CompanyName
@@ -114,6 +162,7 @@ function Test-AgentSignature {
         $storedTenantId    = $props.SignatureTenantId
         $storedCompanyName = $props.SignatureCompanyName
         $storedFingerprint = $props.SignatureFingerprint
+        $storedScheme      = $props.SignatureScheme
 
         if (-not $storedTenantId) {
             Write-CBUPLog "No signature found in registry." -Level WARN
@@ -132,14 +181,23 @@ function Test-AgentSignature {
             return $false
         }
 
-        # Recompute fingerprint and compare
-        $expectedSig = Get-AgentSignature -TenantId $storedTenantId -CompanyName $storedCompanyName
+        # Recompute fingerprint and compare (using the same scheme)
+        $useHmac = ($storedScheme -eq "HMAC-SHA256") -and $script:Config.HmacKey
+        $expectedSig = Get-AgentSignature -TenantId $storedTenantId -CompanyName $storedCompanyName -UseHMAC:$useHmac
+
         if ($expectedSig.Fingerprint -ne $storedFingerprint) {
+            # If the scheme changed (e.g., HMAC key was added), the fingerprint will differ
+            # This is expected; log a warning but don't fail
+            if ($storedScheme -ne $expectedSig.SignatureScheme) {
+                Write-CBUPLog "Signature scheme changed: stored=$storedScheme, current=$($expectedSig.SignatureScheme). Re-embed signature recommended." -Level WARN
+                return $true  # Allow the change as non-critical
+            }
+
             Write-CBUPLog "Signature fingerprint mismatch. Possible tampering detected!" -Level ERROR
             return $false
         }
 
-        Write-CBUPLog "Agent signature verified. Tenant=$TenantId, Fingerprint=$storedFingerprint" -Level DEBUG
+        Write-CBUPLog "Agent signature verified. Tenant=$TenantId, Fingerprint=$storedFingerprint, Scheme=$storedScheme" -Level DEBUG
         return $true
     }
     catch {

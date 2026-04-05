@@ -2,6 +2,9 @@
 # CBUP-Registration.ps1
 # Module: Agent registration, heartbeat, shutdown handlers, and status display.
 # Handles initial registration with the CBUP portal and periodic telemetry.
+#
+# Security hardening (v2.2.0):
+#   - AuthToken encrypted with DPAPI before registry storage
 # =============================================================================
 
 function Register-Agent {
@@ -40,11 +43,24 @@ function Register-Agent {
         $script:Config.AuthToken = $response.token ?? $response.authToken
     }
 
-    # Persist to registry
+    # ── SECURITY: Encrypt AuthToken before persisting to registry (v2.2.0) ──
+    $encryptedAuthToken = $null
+    if ($script:Config.AuthToken) {
+        try {
+            $encryptedAuthToken = Protect-RegistryValue -Plaintext $script:Config.AuthToken
+            Write-CBUPLog "AuthToken encrypted for registry storage." -Level DEBUG
+        }
+        catch {
+            Write-CBUPLog "Failed to encrypt AuthToken, storing as plaintext (fallback): $_" -Level WARN
+            $encryptedAuthToken = $script:Config.AuthToken
+        }
+    }
+
+    # Persist to registry (with encrypted AuthToken)
     Set-RegistryConfig -Settings @{
         ServerUrl    = $script:Config.ServerUrl
         AgentId      = $script:Config.AgentId
-        AuthToken    = $script:Config.AuthToken
+        AuthToken    = $encryptedAuthToken
         Interval     = $script:Config.Interval
         ScanInterval = $script:Config.ScanInterval
         InstallDate  = $script:Config.InstallDate

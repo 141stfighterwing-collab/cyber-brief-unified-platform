@@ -7,7 +7,7 @@
     Collects system metrics, performs EDR scanning, and communicates with the CBUP portal
     via a command-and-control (C2) protocol for centralized security management.
 .NOTES
-    Version:    2.1.0
+    Version:    2.2.0
     Author:     CBUP Security Engineering
     Project:    Cyber Brief Unified Platform
     License:    Proprietary
@@ -73,7 +73,7 @@ param(
 # CONFIGURATION
 # =============================================================================
 
-$script:AgentVersion = "2.1.0"
+$script:AgentVersion = "2.2.0"
 $script:RegKeyPath = "HKLM:\SOFTWARE\CBUP"
 $script:ServiceName = "CBUPAgent"
 $script:ServiceDisplayName = "CBUP Monitoring Agent"

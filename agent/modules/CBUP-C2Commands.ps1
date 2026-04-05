@@ -3,7 +3,218 @@
 # Module: Command-and-control (C2) command handler for CBUP Agent.
 # Processes remote commands from the CBUP portal including EDR scans, script
 # execution, file collection, process management, and agent updates.
+#
+# Security hardening (v2.2.0):
+#   - RUN_CUSTOM_SCRIPT: Command whitelist enforcement
+#   - COLLECT_FILE: Restricted paths blocklist + max 10MB
+#   - UPDATE_AGENT: SHA256 hash verification
 # =============================================================================
+
+# ─── Allowed Script Commands (whitelist for RUN_CUSTOM_SCRIPT) ──────────────
+# Only these PowerShell commands/cmdlets are permitted in custom scripts.
+# This prevents arbitrary code execution while allowing useful diagnostics.
+$script:AllowedScriptCommands = @(
+    # Safe query cmdlets
+    'Get-Process',
+    'Get-Service',
+    'Get-EventLog',
+    'Get-ChildItem',
+    'Get-Content',
+    'Get-NetTCPConnection',
+    'Get-NetUDPEndpoint',
+    'Get-ItemProperty',
+    'Get-CimInstance',
+    'Get-WmiObject',
+    'Get-FileHash',
+    'Get-AuthenticodeSignature',
+    'Get-Item',
+    'Get-Module',
+    'Get-Command',
+    'Get-HotFix',
+    'Get-Event',
+    'Get-WinEvent',
+    'Get-Counter',
+    'Get-Variable',
+    'Get-PSDrive',
+    'Get-Acl',
+    'Get-AuditPolicy',
+    'Get-ExecutionPolicy',
+    'Get-NetFirewallRule',
+    'Get-NetFirewallProfile',
+    'Get-NetAdapter',
+    'Get-NetRoute',
+    'Get-DnsClientCache',
+    'Get-LocalUser',
+    'Get-LocalGroup',
+    'Get-LocalGroupMember',
+    'Get-ScheduledTask',
+    'Get-Service',
+    # Safe external commands
+    'whoami',
+    'hostname',
+    'ipconfig',
+    'systeminfo',
+    'netstat',
+    'tasklist',
+    'nslookup',
+    'ping',
+    'tracert',
+    'pathping',
+    'arp',
+    'route',
+    'nbtstat',
+    'type',
+    # Pipeline and flow control (allowed)
+    'Where-Object',
+    'Select-Object',
+    'Sort-Object',
+    'Format-Table',
+    'Format-List',
+    'Format-Wide',
+    'ForEach-Object',
+    'Measure-Object',
+    'Group-Object',
+    'Compare-Object',
+    'Tee-Object',
+    'Out-String',
+    'Out-File',
+    'Export-Csv',
+    'ConvertTo-Json',
+    'ConvertFrom-Json',
+    'Join-String',
+    # Safe operators (not commands, but needed for validation)
+    'Write-Output',
+    'Write-Host'
+)
+
+# ─── Restricted Paths for COLLECT_FILE ────────────────────────────────────────
+# These paths MUST NOT be collected by the agent (sensitive system files)
+$script:RestrictedFilePatterns = @(
+    # Windows credential/system files
+    'C:\Windows\System32\config\*',
+    'C:\Windows\NTDS\*',
+    # Certificate private keys
+    '*.pfx',
+    '*.p12',
+    '*.key',
+    '*.pem',
+    '*.der',
+    # Credential files
+    'credential*',
+    'credentials*',
+    '*.rdp',
+    '*.csc',
+    # Registry hives
+    'SAM',
+    'SYSTEM',
+    'SECURITY',
+    'SOFTWARE',
+    'NTUSER.DAT'
+)
+
+# Maximum file size for COLLECT_FILE: 10MB (reduced from 50MB for security)
+$script:MaxCollectFileSize = 10MB
+
+function Test-ScriptCommandAllowed {
+    <#
+    .SYNOPSIS
+        Validates that a custom script only uses whitelisted commands.
+    .PARAMETER ScriptText
+        The PowerShell script text to validate.
+    .OUTPUTS
+        Boolean: true if all commands are allowed, false otherwise.
+    .OUTPUTS
+        String array of disallowed commands found (via $script:DisallowedCommandsFound)
+    #>
+    param([string]$ScriptText)
+
+    $script:DisallowedCommandsFound = @()
+
+    # Tokenize the script to extract command names
+    try {
+        $tokens = [System.Management.Automation.PSParser]::Tokenize($ScriptText, [ref]$null)
+
+        foreach ($token in $tokens) {
+            if ($token.Type -eq 'CommandArgument') { continue }
+
+            # Check string literals, command names, and member accesses
+            $commandName = $null
+
+            if ($token.Type -eq 'Command') {
+                $commandName = $token.Content
+            }
+            elseif ($token.Type -eq 'String') {
+                # Skip string literals
+                continue
+            }
+
+            if ($commandName) {
+                # Extract base command name (strip module prefix like Microsoft.PowerShell.Management\Get-Process)
+                $baseCommand = $commandName -replace '^.*\\', ''
+
+                if ($baseCommand -and $script:AllowedScriptCommands -notcontains $baseCommand) {
+                    $script:DisallowedCommandsFound += $baseCommand
+                }
+            }
+        }
+    }
+    catch {
+        Write-CBUPLog "Script parsing failed during validation: $_" -Level WARN
+        $script:DisallowedCommandsFound = @('SCRIPT_PARSE_ERROR')
+        return $false
+    }
+
+    if ($script:DisallowedCommandsFound.Count -gt 0) {
+        return $false
+    }
+
+    return $true
+}
+
+function Test-RestrictedPath {
+    <#
+    .SYNOPSIS
+        Checks if a file path matches any restricted patterns.
+    .PARAMETER FilePath
+        The file path to check.
+    .OUTPUTS
+        Boolean: true if the path is restricted (should be blocked).
+    #>
+    param([string]$FilePath)
+
+    $normalizedPath = $FilePath.Replace('/', '\').ToUpperInvariant()
+
+    foreach ($pattern in $script:RestrictedFilePatterns) {
+        $patternUpper = $pattern.ToUpperInvariant()
+
+        if ($patternUpper.StartsWith('C:\') -or $patternUpper.StartsWith('D:\')) {
+            # Path-based restriction: check if requested path starts with or matches pattern
+            $patternPrefix = $patternUpper -replace '\*$', ''
+            if ($normalizedPath.StartsWith($patternPrefix) -or $normalizedPath -eq $patternUpper) {
+                return $true
+            }
+        }
+        else {
+            # Extension or filename pattern: use simple matching
+            $patternName = $patternUpper -replace '^\*', ''
+            if ($patternUpper.StartsWith('*')) {
+                # Match extension (*.pfx, *.key, etc.)
+                if ($normalizedPath.EndsWith($patternName)) {
+                    return $true
+                }
+            }
+            else {
+                # Match filename prefix (credential*)
+                $fileName = Split-Path -Leaf $normalizedPath
+                if ($fileName.StartsWith($patternUpper) -or $fileName -eq $patternUpper) {
+                    return $true
+                }
+            }
+        }
+    }
+
+    return $false
+}
 
 function Send-CommandResult {
     <#
@@ -138,7 +349,7 @@ function Invoke-C2Command {
             }
 
             # ---------------------------------------------------------------
-            # RUN_CUSTOM_SCRIPT - Execute arbitrary PowerShell (base64 encoded)
+            # RUN_CUSTOM_SCRIPT - Execute PowerShell with WHITELIST enforcement
             # ---------------------------------------------------------------
             "RUN_CUSTOM_SCRIPT" {
                 if (-not $params.script) {
@@ -150,7 +361,20 @@ function Invoke-C2Command {
                     $scriptText = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String($params.script))
                     $timeout = if ($params.timeout) { [int]$params.timeout } else { 60 }
 
-                    Write-CBUPLog "Executing custom script (timeout=${timeout}s)" -Level WARN
+                    # ── SECURITY: Validate script commands against whitelist ──
+                    Write-CBUPLog "Validating custom script commands against whitelist..." -Level WARN
+
+                    $isAllowed = Test-ScriptCommandAllowed -ScriptText $scriptText
+
+                    if (-not $isAllowed) {
+                        $disallowedStr = ($script:DisallowedCommandsFound | Select-Object -Unique) -join ', '
+                        $errorMsg = "SCRIPT REJECTED: Contains disallowed commands: $disallowedStr. Only whitelisted diagnostic commands are permitted."
+                        Write-CBUPLog $errorMsg -Level ERROR
+                        Send-CommandResult -CommandId $commandId -Status FAILED -Error $errorMsg
+                        return
+                    }
+
+                    Write-CBUPLog "Custom script validated. Executing (timeout=${timeout}s)" -Level WARN
 
                     # Run in a runspace with timeout
                     $runspace = [System.Management.Automation.Runspaces.RunspaceFactory]::CreateRunspace()
@@ -181,7 +405,7 @@ function Invoke-C2Command {
             }
 
             # ---------------------------------------------------------------
-            # COLLECT_FILE - Retrieve a file from the agent (base64 response)
+            # COLLECT_FILE - Retrieve a file with RESTRICTED PATH enforcement
             # ---------------------------------------------------------------
             "COLLECT_FILE" {
                 if (-not $params.path) {
@@ -196,9 +420,19 @@ function Invoke-C2Command {
                         return
                     }
 
+                    # ── SECURITY: Check against restricted paths blocklist ──
+                    if (Test-RestrictedPath -FilePath $filePath) {
+                        $errorMsg = "ACCESS DENIED: File path is on the restricted list: $filePath. Sensitive system/credential files cannot be collected."
+                        Write-CBUPLog $errorMsg -Level ERROR
+                        Send-CommandResult -CommandId $commandId -Status FAILED -Error $errorMsg
+                        return
+                    }
+
                     $fileItem = Get-Item -Path $filePath
-                    if ($fileItem.Length -gt 50MB) {
-                        Send-CommandResult -CommandId $commandId -Status FAILED -Error "File too large (max 50MB): $([math]::Round($fileItem.Length / 1MB, 2))MB"
+                    # ── SECURITY: Reduced max file size from 50MB to 10MB ──
+                    if ($fileItem.Length -gt $script:MaxCollectFileSize) {
+                        $maxMB = [math]::Round($script:MaxCollectFileSize / 1MB, 0)
+                        Send-CommandResult -CommandId $commandId -Status FAILED -Error "File too large (max ${maxMB}MB): $([math]::Round($fileItem.Length / 1MB, 2))MB"
                         return
                     }
 
@@ -326,13 +560,14 @@ function Invoke-C2Command {
             }
 
             # ---------------------------------------------------------------
-            # UPDATE_AGENT - Pull new agent version
+            # UPDATE_AGENT - Pull new agent version with SHA256 verification
             # ---------------------------------------------------------------
             "UPDATE_AGENT" {
                 Write-CBUPLog "Agent update requested." -Level WARN
 
                 $downloadUrl = if ($params.downloadUrl) { $params.downloadUrl } else { "$($script:Config.ServerUrl)/api/agents/download" }
                 $targetVersion = $params.version
+                $expectedHash = $params.expectedHash
 
                 try {
                     # Download new agent script
@@ -353,6 +588,25 @@ function Invoke-C2Command {
                     $fileSize = (Get-Item $tempPath).Length
                     if ($fileSize -lt 1KB) {
                         throw "Downloaded file too small ($fileSize bytes)"
+                    }
+
+                    # ── SECURITY: SHA256 Hash Verification ──
+                    if ($expectedHash) {
+                        Write-CBUPLog "Verifying update integrity (SHA256)..." -Level WARN
+                        $actualHash = (Get-FileHash -Path $tempPath -Algorithm SHA256).Hash
+
+                        if ($actualHash -ne $expectedHash) {
+                            Remove-Item -Path $tempPath -Force -ErrorAction SilentlyContinue
+                            $errorMsg = "UPDATE REJECTED: SHA256 hash mismatch! Expected: $expectedHash, Actual: $actualHash. Possible tampering or corruption detected."
+                            Write-CBUPLog $errorMsg -Level ERROR
+                            Send-CommandResult -CommandId $commandId -Status FAILED -Error $errorMsg
+                            return
+                        }
+
+                        Write-CBUPLog "Update integrity verified. SHA256=$actualHash" -Level INFO
+                    }
+                    else {
+                        Write-CBUPLog "No expectedHash provided for update. Skipping integrity verification. (recommended: always provide expectedHash)" -Level WARN
                     }
 
                     # Backup current script

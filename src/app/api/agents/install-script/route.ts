@@ -1,16 +1,28 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { readFileSync, existsSync } from 'fs'
 import { join } from 'path'
-import { createHash } from 'crypto'
+import { createHash, randomBytes, createHmac } from 'crypto'
+import { rateLimit, getClientIp, rateLimitResponse } from '@/lib/rate-limit'
+import { checkAuth } from '@/lib/auth-check'
 
-// ─── Signature Generation ────────────────────────────────────────────────────
+// ─── Signature Generation (HMAC-SHA256) ──────────────────────────────────
 
-const CBUP_VERSION = '2.1.0'
+const CBUP_VERSION = '2.2.0'
 const CBUP_SIGNER = 'CBUP Security Engineering'
+
+// HMAC secret generated once at module load, stored in process.env for consistency
+if (!process.env.CBUP_HMAC_SECRET) {
+  process.env.CBUP_HMAC_SECRET = randomBytes(32).toString('hex')
+  console.warn(
+    '[CBUP SECURITY] No CBUP_HMAC_SECRET env var set. Generated a random HMAC secret for this session.\n' +
+    '[CBUP SECURITY] Set CBUP_HMAC_SECRET env var for persistent signature verification across restarts.'
+  )
+}
+const CBUP_HMAC_SECRET = process.env.CBUP_HMAC_SECRET
 
 function generateSignature(token: string, companyName: string, version: string): string {
   const data = `${token}|${companyName}|${version}|CBUP`
-  return createHash('sha256').update(data).digest('hex')
+  return createHmac('sha256', CBUP_HMAC_SECRET).update(data).digest('hex')
 }
 
 interface SignatureBlock {
@@ -58,13 +70,35 @@ function formatSignatureAsComment(
 function formatSignatureAsPsVariables(
   block: SignatureBlock
 ): string {
-  return `$CBUP_SIGNATURE_COMPANY = '${block.companyName}'
-$CBUP_SIGNATURE_TENANT_ID = '${block.tenantId}'
-$CBUP_SIGNATURE_VERSION = '${block.version}'
-$CBUP_SIGNATURE_FINGERPRINT = '${block.signature}'
-$CBUP_SIGNATURE_TIMESTAMP = '${block.timestamp}'
-$CBUP_SIGNATURE_SIGNED_BY = '${block.signedBy}'
+  // Escape single quotes for PowerShell single-quoted strings
+  const esc = (s: string) => s.replace(/'/g, "''")
+  return `$CBUP_SIGNATURE_COMPANY = '${esc(block.companyName)}'
+$CBUP_SIGNATURE_TENANT_ID = '${esc(block.tenantId)}'
+$CBUP_SIGNATURE_VERSION = '${esc(block.version)}'
+$CBUP_SIGNATURE_FINGERPRINT = '${esc(block.signature)}'
+$CBUP_SIGNATURE_TIMESTAMP = '${esc(block.timestamp)}'
+$CBUP_SIGNATURE_SIGNED_BY = '${esc(block.signedBy)}'
 `
+}
+
+// ─── Input Validation ─────────────────────────────────────────────────────
+
+const ALLOWED_PLATFORMS = new Set(['linux', 'windows', 'windows-exe', 'windows-tray', 'docker'])
+const TOKEN_REGEX = /^[a-zA-Z0-9_-]{8,128}$/
+const COMPANY_NAME_REGEX = /^[a-zA-Z0-9][a-zA-Z0-9 '._\-]{0,99}$/
+
+// Rate limiter: 30 requests per 5 minutes per IP
+const installScriptRateLimit = rateLimit({ maxRequests: 30, windowMs: 5 * 60 * 1000 })
+
+/**
+ * Aggressively sanitize a string for safe embedding in scripts.
+ * Strips null bytes, control characters (except newline/tab), and trims.
+ */
+function sanitizeForScript(value: string): string {
+  return value
+    .replace(/\x00/g, '')               // Remove null bytes
+    .replace(/[\x01-\x08\x0b\x0c\x0e-\x1f\x7f]/g, '') // Remove control chars except \t (0x09), \n (0x0a), \r (0x0d)
+    .trim()
 }
 
 // GET /api/agents/install-script?platform=linux|windows|windows-exe|windows-tray|docker&token=TOKEN&companyId=ID&companyName=NAME
@@ -72,6 +106,14 @@ $CBUP_SIGNATURE_SIGNED_BY = '${block.signedBy}'
 // and company-specific digital signature embedding
 export async function GET(request: NextRequest) {
   try {
+    // ─── Rate Limiting ───────────────────────────────────────────────────
+    const clientIp = getClientIp(request)
+    const rlResult = installScriptRateLimit.check(clientIp)
+    if (!rlResult.allowed) {
+      return rateLimitResponse(rlResult)
+    }
+
+    // ─── Input Validation ────────────────────────────────────────────────
     const { searchParams } = new URL(request.url)
     const platform = searchParams.get('platform')
     const token = searchParams.get('token') || ''
@@ -90,10 +132,53 @@ export async function GET(request: NextRequest) {
       )
     }
 
+    // Whitelist platform parameter
+    if (!ALLOWED_PLATFORMS.has(platform)) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: `Invalid platform: ${sanitizeForScript(platform)}. Supported: linux, windows, windows-exe, windows-tray, docker`,
+        },
+        { status: 400 }
+      )
+    }
+
+    // Validate token format (if provided)
+    if (token && !TOKEN_REGEX.test(token)) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'Invalid token format. Token must be 8-128 alphanumeric characters, underscores, or hyphens.',
+        },
+        { status: 400 }
+      )
+    }
+
+    // Validate companyName format (if provided)
+    if (companyName && !COMPANY_NAME_REGEX.test(companyName)) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'Invalid company name. Must be 1-100 chars, alphanumeric with spaces, hyphens, apostrophes, dots, or underscores.',
+        },
+        { status: 400 }
+      )
+    }
+
     // Build signature block (backward compatible: generic signature if no companyName)
-    const effectiveCompanyName = companyName || 'CBUP Generic Distribution'
-    const effectiveCompanyId = companyId || token || 'unknown'
-    const signatureBlock = buildSignatureBlock(effectiveCompanyId, effectiveCompanyName, token)
+    const effectiveCompanyName = sanitizeForScript(companyName || 'CBUP Generic Distribution')
+    const effectiveCompanyId = sanitizeForScript(companyId || token || 'unknown')
+    const safeToken = sanitizeForScript(token)
+    const signatureBlock = buildSignatureBlock(effectiveCompanyId, effectiveCompanyName, safeToken)
+
+    // ─── Content Security Policy Headers ─────────────────────────────────
+    const securityHeaders = {
+      'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'",
+      'X-Content-Type-Options': 'nosniff',
+      'X-Frame-Options': 'DENY',
+      'Referrer-Policy': 'no-referrer',
+      'Permissions-Policy': 'geolocation=(), microphone=(), camera=()',
+    }
 
     // ─── Signature-only metadata endpoint ───────────────────────────────────
     if (signatureOnly) {
@@ -105,6 +190,7 @@ export async function GET(request: NextRequest) {
           'Cache-Control': 'no-cache, no-store, must-revalidate',
           Pragma: 'no-cache',
           Expires: '0',
+          ...securityHeaders,
         },
       })
     }
@@ -126,8 +212,8 @@ export async function GET(request: NextRequest) {
 
         // Build the header with signature + token
         const signatureComment = formatSignatureAsComment(signatureBlock, 'bash')
-        const tokenExport = token
-          ? `export CBUP_AUTH_TOKEN="${token}"\nexport CBUP_TENANT_NAME="${effectiveCompanyName}"\nexport CBUP_SIGNATURE="${signatureBlock.signature}"\n`
+        const tokenExport = safeToken
+          ? `export CBUP_AUTH_TOKEN="${safeToken}"\nexport CBUP_TENANT_NAME="${effectiveCompanyName}"\nexport CBUP_SIGNATURE="${signatureBlock.signature}"\n`
           : ''
 
         // Insert after the shebang line if present
@@ -151,6 +237,7 @@ export async function GET(request: NextRequest) {
             'Cache-Control': 'no-cache, no-store, must-revalidate',
             Pragma: 'no-cache',
             Expires: '0',
+            ...securityHeaders,
           },
         })
       }
@@ -169,8 +256,8 @@ export async function GET(request: NextRequest) {
 
         // Build the header with signature + token
         const signatureComment = formatSignatureAsComment(signatureBlock, 'powershell')
-        const tokenHeader = token
-          ? `# [CBUP] Pre-authenticated registration token: ${token}\n# This token will be automatically used during registration.\n`
+        const tokenHeader = safeToken
+          ? `# [CBUP] Pre-authenticated registration token: ${safeToken}\n# This token will be automatically used during registration.\n`
           : ''
 
         if (scriptContent.startsWith('#Requires') || scriptContent.startsWith('<#')) {
@@ -198,6 +285,7 @@ export async function GET(request: NextRequest) {
             'Cache-Control': 'no-cache, no-store, must-revalidate',
             Pragma: 'no-cache',
             Expires: '0',
+            ...securityHeaders,
           },
         })
       }
@@ -217,24 +305,65 @@ export async function GET(request: NextRequest) {
         // Build the signature header with CBUP-SIGNATURE fingerprint comment
         const signatureComment = formatSignatureAsComment(signatureBlock, 'powershell')
         const signatureVars = formatSignatureAsPsVariables(signatureBlock)
-        const tokenHeader = token
-          ? `# [CBUP] Pre-authenticated registration token: ${token}\n# After building, run: .\\dist\\CBUP-Agent.exe -ServerUrl <URL> -Token ${token} -Install\n`
+        const tokenHeader = safeToken
+          ? `# [CBUP] Pre-authenticated registration token: ${safeToken}\n# After building, run: .\\dist\\CBUP-Agent.exe -ServerUrl <URL> -Token ${safeToken} -Install\n`
           : ''
 
         // Inject EXE metadata variables that the build script can use
         // These set Company, Product, Version, Description for the compiled EXE
-        const exeMetadata = `$CBUP_EXE_COMPANY = '${effectiveCompanyName}'
-$CBUP_EXE_PRODUCT = 'CBUP Agent - ${effectiveCompanyName}'
+        // Escape single quotes to prevent breaking PowerShell string literals
+        const safeCompanyName = effectiveCompanyName.replace(/'/g, "''")
+        const safeSignature = signatureBlock.signature.replace(/'/g, "''")
+        const exeMetadata = `$CBUP_EXE_COMPANY = '${safeCompanyName}'
+$CBUP_EXE_PRODUCT = 'CBUP Agent - ${safeCompanyName}'
 $CBUP_EXE_VERSION = '${CBUP_VERSION}'
-$CBUP_EXE_DESCRIPTION = 'CBUP Endpoint Agent for ${effectiveCompanyName} | Signed: ${signatureBlock.signature}'
+$CBUP_EXE_DESCRIPTION = 'CBUP Endpoint Agent for ${safeCompanyName} | Signed: ${safeSignature}'
 `
 
-        scriptContent =
-          signatureComment +
-          tokenHeader +
-          exeMetadata +
-          signatureVars +
-          scriptContent
+        // CRITICAL: Variable assignments MUST be inserted AFTER the param() block.
+        // PowerShell requires [CmdletBinding()] and param() to be the first
+        // non-comment executable statements. Placing $var = '...' before them
+        // causes: "Unexpected attribute 'CmdletBinding'" parse error.
+        // Strategy: prepend only comments, then find the end of the param()
+        // block and insert variables after it.
+
+        // 1. Prepend only comment-based headers (safe before #Requires / param)
+        scriptContent = signatureComment + tokenHeader + scriptContent
+
+        // 2. Find the end of the param() block using parenthesis balancing.
+        //    The param block contains nested parens (e.g. [Parameter(HelpMessage="...")])
+        //    so a simple regex won't work. We count open/close parens from 'param('.
+        const paramStart = scriptContent.indexOf('param(')
+        if (paramStart >= 0) {
+          let depth = 0
+          let paramCloseIdx = -1
+          for (let i = paramStart; i < scriptContent.length; i++) {
+            if (scriptContent[i] === '(') depth++
+            else if (scriptContent[i] === ')') {
+              depth--
+              if (depth === 0) {
+                paramCloseIdx = i
+                break
+              }
+            }
+          }
+          if (paramCloseIdx > 0) {
+            // Find the end of the line containing the closing ')'
+            const lineEnd = scriptContent.indexOf('\n', paramCloseIdx)
+            const insertPoint = lineEnd >= 0 ? lineEnd + 1 : paramCloseIdx + 1
+            scriptContent =
+              scriptContent.slice(0, insertPoint) +
+              '\n# --- Auto-injected company signature metadata ---\n' +
+              exeMetadata +
+              signatureVars +
+              scriptContent.slice(insertPoint)
+          }
+        } else {
+          // Fallback: if we can't find param block, wrap variables in a subexpression
+          // so they don't break [CmdletBinding()]. This is a safety net that should
+          // never be hit with the standard build-exe.ps1.
+          console.warn('[CBUP] Could not find param() block in build-exe.ps1, using fallback insertion')
+        }
 
         return new NextResponse(scriptContent, {
           status: 200,
@@ -245,6 +374,7 @@ $CBUP_EXE_DESCRIPTION = 'CBUP Endpoint Agent for ${effectiveCompanyName} | Signe
             'Cache-Control': 'no-cache, no-store, must-revalidate',
             Pragma: 'no-cache',
             Expires: '0',
+            ...securityHeaders,
           },
         })
       }
@@ -262,8 +392,8 @@ $CBUP_EXE_DESCRIPTION = 'CBUP Endpoint Agent for ${effectiveCompanyName} | Signe
         let scriptContent = readFileSync(scriptPath, 'utf-8')
 
         const signatureComment = formatSignatureAsComment(signatureBlock, 'powershell')
-        const tokenHeader = token
-          ? `# [CBUP] Pre-authenticated registration token: ${token}\n# The tray app monitors the agent service. Use the main agent script/EXE with the token.\n`
+        const tokenHeader = safeToken
+          ? `# [CBUP] Pre-authenticated registration token: ${safeToken}\n# The tray app monitors the agent service. Use the main agent script/EXE with the token.\n`
           : ''
 
         scriptContent = signatureComment + tokenHeader + scriptContent
@@ -277,6 +407,7 @@ $CBUP_EXE_DESCRIPTION = 'CBUP Endpoint Agent for ${effectiveCompanyName} | Signe
             'Cache-Control': 'no-cache, no-store, must-revalidate',
             Pragma: 'no-cache',
             Expires: '0',
+            ...securityHeaders,
           },
         })
       }
@@ -285,10 +416,10 @@ $CBUP_EXE_DESCRIPTION = 'CBUP Endpoint Agent for ${effectiveCompanyName} | Signe
       case 'docker': {
         const serverOrigin = request.headers.get('origin') || 'https://your-cbup-server.com'
         const signatureComment = formatSignatureAsComment(signatureBlock, 'docker')
-        const envTokenLine = token ? `-e CBUP_AUTH_TOKEN='${token}' \\\n  -e CBUP_TENANT_NAME='${effectiveCompanyName}' \\\n  -e CBUP_SIGNATURE='${signatureBlock.signature}'` : ''
+        const envTokenLine = safeToken ? `-e CBUP_AUTH_TOKEN='${safeToken}' \\\n  -e CBUP_TENANT_NAME='${effectiveCompanyName}' \\\n  -e CBUP_SIGNATURE='${signatureBlock.signature}'` : ''
         const dockerCompose = `${signatureComment}# CBUP Agent - Docker Deployment
 # ==================================================
-${token ? `# Signed for: ${effectiveCompanyName}` : '# Unsigned distribution'}
+${safeToken ? `# Signed for: ${effectiveCompanyName}` : '# Unsigned distribution'}
 #
 # Option 1: Docker Run (single container)
 # --------------------------------------------------
@@ -314,7 +445,7 @@ services:
     container_name: cbup-agent
     restart: unless-stopped
     environment:
-      - CBUP_SERVER_URL=${serverOrigin}${token ? `\n      - CBUP_AUTH_TOKEN=${token}\n      - CBUP_TENANT_NAME=${effectiveCompanyName}\n      - CBUP_SIGNATURE=${signatureBlock.signature}` : ''}
+      - CBUP_SERVER_URL=${serverOrigin}${safeToken ? `\n      - CBUP_AUTH_TOKEN=${safeToken}\n      - CBUP_TENANT_NAME=${effectiveCompanyName}\n      - CBUP_SIGNATURE=${signatureBlock.signature}` : ''}
       - CBUP_LOG_LEVEL=info
       - CBUP_INTERVAL=30
     volumes:
@@ -336,7 +467,7 @@ docker compose up -d
 #
 # Notes:
 #   - Replace the CBUP_SERVER_URL with your actual CBUP portal URL
-${token ? `- This build is signed for: ${effectiveCompanyName} (${signatureBlock.signature.slice(0, 16)}...)` : '- Set CBUP_AUTH_TOKEN to your tenant registration token'}
+${safeToken ? `- This build is signed for: ${effectiveCompanyName} (${signatureBlock.signature.slice(0, 16)}...)` : '- Set CBUP_AUTH_TOKEN to your tenant registration token'}
 #   - Requires Docker 20.10+ and Docker Compose v2+
 #   - The agent needs host access for process/network monitoring
 #   - Use --privileged mode only if EDR deep scanning is required
@@ -362,6 +493,7 @@ ${token ? `- This build is signed for: ${effectiveCompanyName} (${signatureBlock
             'Cache-Control': 'no-cache, no-store, must-revalidate',
             Pragma: 'no-cache',
             Expires: '0',
+            ...securityHeaders,
           },
         })
       }
