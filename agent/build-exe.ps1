@@ -5,8 +5,12 @@
 .DESCRIPTION
     Compiles CBUP-Agent.ps1 into a standalone .exe using the ps2exe module.
     Supports console mode, windows (hidden) mode, and custom icons.
+
+    If CBUP-Agent.ps1 or modules/ are not found locally, this script will
+    auto-download them from the CBUP server (requires $CBUP_SERVER_ORIGIN
+    to be set, which is automatically injected when downloaded from the portal).
 .NOTES
-    Version:    2.2.0
+    Version:    2.4.0
     Author:     CBUP Security Engineering
     Project:    Cyber Brief Unified Platform
 
@@ -39,18 +43,152 @@ param(
     [switch]$NoIcon,
 
     [Parameter(HelpMessage = "Force reinstall of ps2exe module")]
-    [switch]$ForceModuleInstall
+    [switch]$ForceModuleInstall,
+
+    [Parameter(HelpMessage = "CBUP server URL for auto-downloading agent source files")]
+    [string]$ServerOrigin
 )
 
 # =============================================================================
 # CONFIGURATION
 # =============================================================================
 
-$script:AgentVersion = "2.2.0"
+$script:AgentVersion = "2.4.0"
 $script:ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $script:SourceScript = Join-Path $script:ScriptDir "CBUP-Agent.ps1"
+$script:ModulesDir = Join-Path $script:ScriptDir "modules"
 $script:DefaultOutputDir = Join-Path $script:ScriptDir "dist"
 $script:DefaultIconPath = Join-Path $script:ScriptDir "shield.ico"
+
+# Use injected server origin or parameter
+if (-not $ServerOrigin -and $CBUP_SERVER_ORIGIN) {
+    $ServerOrigin = $CBUP_SERVER_ORIGIN
+}
+
+# =============================================================================
+# AUTO-DOWNLOAD AGENT SOURCE FILES
+# =============================================================================
+
+function Get-RequiredAgentFiles {
+    <#
+    .SYNOPSIS
+        Ensures CBUP-Agent.ps1 and modules/ are available.
+        Downloads from the CBUP server if missing locally.
+    #>
+
+    $needDownload = $false
+
+    if (-not (Test-Path $script:SourceScript)) {
+        Write-Host "    [MISSING] CBUP-Agent.ps1 not found locally" -ForegroundColor Yellow
+        $needDownload = $true
+    }
+    elseif (-not (Test-Path (Join-Path $script:ModulesDir "CBUP-API.ps1"))) {
+        Write-Host "    [MISSING] modules/ directory not found or incomplete" -ForegroundColor Yellow
+        $needDownload = $true
+    }
+
+    if (-not $needDownload) {
+        Write-Host "    [OK] Source script and modules found locally" -ForegroundColor Green
+        return $true
+    }
+
+    # Need to download from server
+    if (-not $ServerOrigin) {
+        Write-Host ""
+        Write-Host "    [ERROR] Agent source files are missing and no server URL provided." -ForegroundColor Red
+        Write-Host "    You must either:" -ForegroundColor Yellow
+        Write-Host "      1. Download this script from the CBUP portal (auto-injects server URL)" -ForegroundColor Yellow
+        Write-Host "      2. Place CBUP-Agent.ps1 and modules/ in: $($script:ScriptDir)" -ForegroundColor Yellow
+        Write-Host "      3. Use -ServerOrigin parameter: .\build-exe.ps1 -ServerOrigin http://your-server:3001" -ForegroundColor Yellow
+        Write-Host ""
+        return $false
+    }
+
+    # Clean up any partial downloads
+    if (Test-Path $script:SourceScript) { Remove-Item $script:SourceScript -Force }
+    if (Test-Path $script:ModulesDir) { Remove-Item $script:ModulesDir -Recurse -Force }
+
+    $packageUrl = "$ServerOrigin/api/agents/download-package"
+
+    Write-Host "    [*] Downloading agent package from server..." -ForegroundColor Cyan
+    Write-Host "        URL: $packageUrl" -ForegroundColor DarkGray
+
+    try {
+        $tempZip = Join-Path $env:TEMP "cbup-agent-package.zip"
+
+        # Download with TLS 1.2+
+        $securityProtocol = [Net.ServicePointManager]::SecurityProtocol
+        [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
+
+        $ProgressPreference = 'SilentlyContinue'
+        Invoke-WebRequest -Uri $packageUrl -OutFile $tempZip -UseBasicParsing -TimeoutSec 120
+        $ProgressPreference = 'Continue'
+
+        [Net.ServicePointManager]::SecurityProtocol = $securityProtocol
+
+        if (-not (Test-Path $tempZip)) {
+            Write-Host "    [ERROR] Download failed - no file received" -ForegroundColor Red
+            return $false
+        }
+
+        $zipSize = (Get-Item $tempZip).Length
+        if ($zipSize -lt 1000) {
+            Write-Host "    [ERROR] Downloaded file is too small ($($zipSize) bytes) - likely an error response" -ForegroundColor Red
+            $content = Get-Content $tempZip -Raw -ErrorAction SilentlyContinue
+            if ($content) { Write-Host "    Response: $content" -ForegroundColor DarkGray }
+            Remove-Item $tempZip -Force -ErrorAction SilentlyContinue
+            return $false
+        }
+
+        Write-Host "    [OK] Downloaded package ($([math]::Round($zipSize / 1KB, 1)) KB)" -ForegroundColor Green
+
+        # Extract ZIP
+        Write-Host "    [*] Extracting agent files..." -ForegroundColor Cyan
+
+        # Try Expand-Archive (PowerShell 5.0+)
+        try {
+            Expand-Archive -Path $tempZip -DestinationPath $script:ScriptDir -Force
+            Write-Host "    [OK] Files extracted successfully" -ForegroundColor Green
+        }
+        catch {
+            # Fallback: use COM Shell.Application
+            try {
+                $shell = New-Object -ComObject Shell.Application
+                $zipShell = $shell.Namespace($tempZip)
+                $destShell = $shell.Namespace($script:ScriptDir)
+                $destShell.CopyHere($zipShell.Items(), 0x14) # 0x14 = no confirm UI
+                Start-Sleep -Seconds 2
+                Write-Host "    [OK] Files extracted (COM fallback)" -ForegroundColor Green
+            }
+            catch {
+                Write-Host "    [ERROR] Failed to extract ZIP: $_" -ForegroundColor Red
+                Write-Host "    Try manually extracting: $tempZip" -ForegroundColor Yellow
+                Remove-Item $tempZip -Force -ErrorAction SilentlyContinue
+                return $false
+            }
+        }
+
+        # Clean up temp file
+        Remove-Item $tempZip -Force -ErrorAction SilentlyContinue
+
+        # Verify extraction
+        if (-not (Test-Path $script:SourceScript)) {
+            Write-Host "    [ERROR] CBUP-Agent.ps1 not found after extraction" -ForegroundColor Red
+            return $false
+        }
+
+        $moduleCount = (Get-ChildItem -Path $script:ModulesDir -Filter "*.ps1" -ErrorAction SilentlyContinue).Count
+        Write-Host "    [OK] CBUP-Agent.ps1 + $moduleCount module files ready" -ForegroundColor Green
+        return $true
+    }
+    catch {
+        Write-Host "    [ERROR] Download failed: $_" -ForegroundColor Red
+        if ($tempZip -and (Test-Path $tempZip)) {
+            Remove-Item $tempZip -Force -ErrorAction SilentlyContinue
+        }
+        return $false
+    }
+}
 
 # =============================================================================
 # PREREQUISITE CHECKS
@@ -63,12 +201,26 @@ function Test-Prerequisites {
     #>
     Write-Host "[*] Checking prerequisites..." -ForegroundColor Cyan
 
-    # Check source script exists
+    # Check for agent source files (auto-download if missing)
+    if (-not (Get-RequiredAgentFiles)) {
+        Write-Error "Cannot proceed without agent source files. See errors above."
+        exit 1
+    }
+
+    # Check source script exists (re-verify after download)
     if (-not (Test-Path $script:SourceScript)) {
         Write-Error "Source script not found: $($script:SourceScript)"
         exit 1
     }
-    Write-Host "    [OK] Source script found: CBUP-Agent.ps1" -ForegroundColor Green
+    Write-Host "    [OK] Source script: CBUP-Agent.ps1" -ForegroundColor Green
+
+    # Check modules directory
+    if (-not (Test-Path $script:ModulesDir)) {
+        Write-Error "Modules directory not found: $($script:ModulesDir)"
+        exit 1
+    }
+    $moduleCount = (Get-ChildItem -Path $script:ModulesDir -Filter "*.ps1" -ErrorAction SilentlyContinue).Count
+    Write-Host "    [OK] Modules: $moduleCount files found" -ForegroundColor Green
 
     # Check PowerShell version
     $psVersion = $PSVersionTable.PSVersion
@@ -113,12 +265,32 @@ function Install-Ps2ExeModule {
 
     Write-Host "    [*] Installing ps2exe module from PowerShell Gallery..." -ForegroundColor Yellow
 
-    try {
-        # Try current user scope first
-        if (-not $ForceModuleInstall) {
-            $module = Get-Module -ListAvailable -Name "ps2exe" -ErrorAction SilentlyContinue
+    # Ensure NuGet package provider is available
+    $nugetProvider = Get-PackageProvider -Name "NuGet" -ErrorAction SilentlyContinue
+    if (-not $nugetProvider) {
+        Write-Host "    [*] Installing NuGet package provider..." -ForegroundColor Yellow
+        try {
+            Install-PackageProvider -Name "NuGet" -MinimumVersion 2.8.5.201 -Force -Scope CurrentUser -ErrorAction Stop
         }
+        catch {
+            Write-Host "    [WARN] Failed to install NuGet provider automatically: $_" -ForegroundColor Yellow
+            Write-Host "    [*] Continuing with ps2exe install (may prompt for NuGet)..." -ForegroundColor Yellow
+        }
+    }
 
+    # Set PSGallery as trusted to avoid prompts
+    $repo = Get-PSRepository -Name "PSGallery" -ErrorAction SilentlyContinue
+    if ($repo -and -not $repo.Trusted) {
+        try {
+            Set-PSRepository -Name "PSGallery" -InstallationPolicy Trusted -ErrorAction Stop
+            Write-Host "    [OK] PSGallery set as trusted" -ForegroundColor Green
+        }
+        catch {
+            Write-Host "    [WARN] Could not set PSGallery as trusted: $_" -ForegroundColor Yellow
+        }
+    }
+
+    try {
         Install-Module -Name "ps2exe" -Scope CurrentUser -Force -AllowClobber -ErrorAction Stop
         Write-Host "    [OK] ps2exe module installed successfully" -ForegroundColor Green
     }
@@ -133,6 +305,7 @@ function Install-Ps2ExeModule {
             Write-Host ""
             Write-Host "Manual install:" -ForegroundColor Yellow
             Write-Host "  Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Force" -ForegroundColor Yellow
+            Write-Host "  Set-PSRepository -Name PSGallery -InstallationPolicy Trusted" -ForegroundColor Yellow
             Write-Host "  Install-Module -Name ps2exe -Force -AllowClobber" -ForegroundColor Yellow
             exit 1
         }
@@ -150,6 +323,7 @@ function Import-Ps2ExeModule {
     }
     catch {
         Write-Error "Failed to import ps2exe module: $_"
+        Write-Host "    Try running: Install-Module -Name ps2exe -Force -AllowClobber" -ForegroundColor Yellow
         exit 1
     }
 }
@@ -345,6 +519,12 @@ function Build-Exe {
         nested             = $true
     }
 
+    # Override with injected metadata if available
+    if ($CBUP_EXE_COMPANY)    { $params["company"]     = $CBUP_EXE_COMPANY }
+    if ($CBUP_EXE_PRODUCT)    { $params["product"]     = $CBUP_EXE_PRODUCT }
+    if ($CBUP_EXE_VERSION)    { $params["version"]     = $CBUP_EXE_VERSION }
+    if ($CBUP_EXE_DESCRIPTION) { $params["description"] = $CBUP_EXE_DESCRIPTION }
+
     if ($IconPath -and (Test-Path $IconPath)) {
         $params["iconFile"] = $IconPath
         Write-Host "    [OK] Using icon: $IconPath" -ForegroundColor Green
@@ -386,7 +566,7 @@ Write-Host "  Cyber Brief Unified Platform" -ForegroundColor DarkCyan
 Write-Host "============================================" -ForegroundColor DarkCyan
 Write-Host ""
 
-# Step 1: Check prerequisites
+# Step 1: Check prerequisites (includes auto-download)
 Test-Prerequisites
 Write-Host ""
 

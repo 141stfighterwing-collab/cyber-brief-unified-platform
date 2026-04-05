@@ -7,7 +7,7 @@ import { checkAuth } from '@/lib/auth-check'
 
 // ─── Signature Generation (HMAC-SHA256) ──────────────────────────────────
 
-const CBUP_VERSION = '2.2.0'
+const CBUP_VERSION = '2.4.0'
 const CBUP_SIGNER = 'CBUP Security Engineering'
 
 // HMAC secret generated once at module load, stored in process.env for consistency
@@ -314,7 +314,15 @@ export async function GET(request: NextRequest) {
         // Escape single quotes to prevent breaking PowerShell string literals
         const safeCompanyName = effectiveCompanyName.replace(/'/g, "''")
         const safeSignature = signatureBlock.signature.replace(/'/g, "''")
-        const exeMetadata = `$CBUP_EXE_COMPANY = '${safeCompanyName}'
+
+        // Inject server origin so build-exe.ps1 can auto-download agent source files
+        const serverOrigin = request.headers.get('host')
+          ? `${request.headers.get('x-forwarded-proto') || 'http'}://${request.headers.get('host')}`
+          : 'http://localhost:3001'
+        const safeServerOrigin = serverOrigin.replace(/'/g, "''")
+
+        const exeMetadata = `$CBUP_SERVER_ORIGIN = '${safeServerOrigin}'
+$CBUP_EXE_COMPANY = '${safeCompanyName}'
 $CBUP_EXE_PRODUCT = 'CBUP Agent - ${safeCompanyName}'
 $CBUP_EXE_VERSION = '${CBUP_VERSION}'
 $CBUP_EXE_DESCRIPTION = 'CBUP Endpoint Agent for ${safeCompanyName} | Signed: ${safeSignature}'
