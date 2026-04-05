@@ -33,17 +33,8 @@ export async function GET() {
   } catch (error) {
     console.error('Dashboard stats error:', error)
     return NextResponse.json(
-      {
-        activeAlerts: 18,
-        criticalAlerts: 3,
-        openTasks: 7,
-        completedTasks: 2,
-        complianceScore: 82,
-        threatLevel: 'ELEVATED',
-        threatScore: 78,
-        recentAlerts: [],
-      },
-      { status: 200 }
+      { error: 'Failed to load dashboard statistics' },
+      { status: 500 }
     )
   }
 }

@@ -59,7 +59,7 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json()
-    const { email, name, company, password, tier } = body
+    const { email, name, company, password, tier, action } = body
 
     if (!email) {
       return NextResponse.json({ error: 'Email is required' }, { status: 400 })
@@ -70,7 +70,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Invalid email format' }, { status: 400 })
     }
 
-    // ─── Password Strength Validation (for new users) ────────────────────
+    // ─── Password Strength Validation (for new users and password sets) ──
     if (password) {
       if (password.length < 8) {
         return NextResponse.json({ error: 'Password must be at least 8 characters' }, { status: 400 })
@@ -80,16 +80,60 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Check if user already exists → login flow
+    // ─── Determine intent: explicit login vs signup vs auto-detect ───────
+    const isExplicitLogin = action === 'login'
+    const isExplicitSignup = action === 'signup'
+
+    // Check if user already exists
     const existing = await db.user.findUnique({ where: { email } })
+
     if (existing) {
-      // For existing users, if they provide a password, verify it (login flow)
+      // ─── LOGIN FLOW (existing user) ────────────────────────────────────
+      // Case 1: User has NO password set (null/empty) — allow first-login password set
+      if (!existing.password) {
+        if (password) {
+          // Hash and store the password for this first login
+          const hashed = hashPassword(password)
+          await db.user.update({
+            where: { id: existing.id },
+            data: { password: hashed },
+          })
+          console.log(`[CBUP AUTH] First-login password set for: ${existing.email}`)
+        }
+        // Return user data regardless — null password users are pre-seeded
+        return NextResponse.json({
+          id: existing.id,
+          email: existing.email,
+          name: existing.name,
+          company: existing.company,
+          tier: existing.tier,
+          role: existing.role,
+          firstLogin: !password,
+        })
+      }
+
+      // Case 2: User HAS a hashed password — verify it
       if (password) {
-        if (!verifyPassword(password, existing.password)) {
+        const valid = verifyPassword(password, existing.password)
+        if (!valid) {
           return NextResponse.json({ error: 'Invalid credentials' }, { status: 401 })
         }
+
+        // Auto-migrate legacy plaintext passwords to hashed on successful login
+        if (existing.password && !existing.password.includes(':')) {
+          const hashed = hashPassword(password)
+          await db.user.update({
+            where: { id: existing.id },
+            data: { password: hashed },
+          })
+          console.log(`[CBUP SECURITY] Auto-migrated plaintext password to scrypt for: ${existing.email}`)
+        }
+      } else {
+        // No password provided for a user who has one
+        return NextResponse.json({ error: 'Password is required' }, { status: 401 })
       }
-      // Return user data (existing login flow preserved)
+
+      // Return user data (login flow)
       return NextResponse.json({
         id: existing.id,
         email: existing.email,
@@ -98,6 +142,12 @@ export async function POST(request: NextRequest) {
         tier: existing.tier,
         role: existing.role,
       })
+    }
+
+    // ─── SIGNUP FLOW (new user) ──────────────────────────────────────────
+    if (isExplicitLogin) {
+      // Explicit login for non-existent user
+      return NextResponse.json({ error: 'No account found with this email' }, { status: 401 })
     }
 
     // Create new user — hash the password before storage
@@ -121,6 +171,7 @@ export async function POST(request: NextRequest) {
       company: user.company,
       tier: user.tier,
       role: user.role,
+      firstLogin: !hashedPassword,
     })
   } catch (error) {
     console.error('Auth error:', error)

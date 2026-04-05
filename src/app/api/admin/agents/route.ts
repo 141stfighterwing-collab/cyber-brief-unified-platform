@@ -1,8 +1,14 @@
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
+import { checkAuth } from '@/lib/auth-check'
 
 // GET /api/admin/agents — All agents across all tenants
-export async function GET(request: Request) {
+// SECURITY: Requires admin authentication
+export async function GET(request: NextRequest) {
+  // ─── Auth Check ────────────────────────────────────────────────────────
+  const authFail = checkAuth(request)
+  if (authFail) return authFail
+
   try {
     const { searchParams } = new URL(request.url)
     const tenantId = searchParams.get('tenantId')

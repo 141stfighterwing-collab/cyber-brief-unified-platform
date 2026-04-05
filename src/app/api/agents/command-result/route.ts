@@ -1,12 +1,24 @@
 import { NextResponse } from 'next/server'
 import { db } from '@/lib/db'
+import { safeEqual } from '@/lib/security-utils'
+
+// Maximum result payload size: 1MB
+const MAX_RESULT_SIZE = 1024 * 1024
 
 // POST /api/agents/command-result
 // Agent reports command execution result
 export async function POST(request: Request) {
   try {
-    const body = await request.json()
+    // ─── Body Size Validation ─────────────────────────────────────────────
+    const contentLength = request.headers.get('content-length')
+    if (contentLength && parseInt(contentLength, 10) > MAX_RESULT_SIZE) {
+      return NextResponse.json(
+        { success: false, error: 'Request body too large' },
+        { status: 413 }
+      )
+    }
 
+    const body = await request.json()
     const { agentId, authToken, commandId, status, result, error } = body
 
     if (!agentId || !authToken || !commandId || !status) {
@@ -16,7 +28,7 @@ export async function POST(request: Request) {
       )
     }
 
-    // Verify agent and token
+    // Verify agent and token (timing-safe comparison)
     const agent = await db.agent.findUnique({
       where: { agentId },
     })
@@ -28,7 +40,8 @@ export async function POST(request: Request) {
       )
     }
 
-    if (agent.authToken !== authToken) {
+    // SECURITY: Timing-safe token comparison
+    if (!safeEqual(authToken, agent.authToken)) {
       return NextResponse.json(
         { success: false, error: 'Invalid auth token' },
         { status: 401 }

@@ -70,7 +70,7 @@ export function AuthForm() {
       const res = await fetch('/api/auth/signup', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password, tier: 'free' }),
+        body: JSON.stringify({ email, password, action: 'login' }),
       })
 
       if (!res.ok) {

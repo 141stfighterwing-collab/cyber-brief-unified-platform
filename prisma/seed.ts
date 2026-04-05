@@ -1,31 +1,44 @@
 /**
- * CBUP Database Seed Script
+ * CBUP Database Seed Script (v2.3.0)
  *
  * Creates default data for development:
- * - Super admin user (admin@cbup.local / admin123)
+ * - Super admin user (admin@cbup.io / CBUPadmin2024!)
  * - Default tenant organization ("Default Organization")
  * - Associates admin user with the default tenant as owner
  *
- * Run: npx prisma db seed
- *   or: npx tsx prisma/seed.ts
+ * SECURITY: All passwords are hashed using scrypt (Node.js crypto).
+ * No plaintext passwords are stored in the database.
+ *
+ * Run: npx tsx prisma/seed.ts
  */
 
 import { PrismaClient } from '@prisma/client'
+import { randomBytes, scryptSync } from 'crypto'
 
 const prisma = new PrismaClient()
 
+// ─── Password Hashing (matching auth route implementation) ────────────────────
+const SCRYPT_KEY_LENGTH = 64
+const SALT_LENGTH = 16
+
+function hashPassword(password: string): string {
+  const salt = randomBytes(SALT_LENGTH).toString('hex')
+  const hash = scryptSync(password, salt, SCRYPT_KEY_LENGTH).toString('hex')
+  return `${salt}:${hash}`
+}
+
 async function main() {
   console.log('🌱 CBUP Seed: Starting...')
+  console.log('  ℹ️  All passwords are hashed with scrypt (no plaintext storage)')
 
   // -------------------------------------------------------------------------
   // 1. Create default super_admin user
   // -------------------------------------------------------------------------
   console.log('  → Creating super_admin user...')
 
-  // In production, passwords should be hashed with bcrypt.
-  // For dev seed, we store plain text (admin123).
-  const adminEmail = 'admin@cbup.local'
-  const adminPassword = 'admin123'
+  const adminEmail = 'admin@cbup.io'
+  const adminPassword = 'CBUPadmin2024!'
+  const hashedAdminPassword = hashPassword(adminPassword)
 
   let adminUser = await prisma.user.findUnique({
     where: { email: adminEmail },
@@ -38,7 +51,7 @@ async function main() {
         name: 'CBUP Administrator',
         company: 'Cyber Brief Unified Platform',
         role: 'super_admin',
-        password: adminPassword,
+        password: hashedAdminPassword,
         tier: 'enterprise',
         settings: JSON.stringify({
           theme: 'dark',
@@ -49,7 +62,16 @@ async function main() {
     })
     console.log(`    ✓ Created admin user: ${adminEmail} (id: ${adminUser.id})`)
   } else {
-    console.log(`    ↻ Admin user already exists: ${adminEmail} (id: ${adminUser.id})`)
+    // Migrate existing admin user if password is null or plaintext
+    if (!adminUser.password || !adminUser.password.includes(':')) {
+      await prisma.user.update({
+        where: { id: adminUser.id },
+        data: { password: hashedAdminPassword },
+      })
+      console.log(`    ↻ Migrated admin password to scrypt hash: ${adminEmail}`)
+    } else {
+      console.log(`    ↻ Admin user already exists: ${adminEmail} (id: ${adminUser.id})`)
+    }
   }
 
   // -------------------------------------------------------------------------
@@ -171,16 +193,42 @@ async function main() {
   }
 
   // -------------------------------------------------------------------------
+  // 5. Security audit: check for null/plaintext passwords
+  // -------------------------------------------------------------------------
+  console.log('  → Running security audit on user passwords...')
+
+  const allUsers = await prisma.user.findMany({
+    select: { id: true, email: true, password: true },
+  })
+
+  let migrated = 0
+  for (const user of allUsers) {
+    if (!user.password) {
+      console.log(`    ⚠️  NULL password: ${user.email} — recommend setting a password`)
+    } else if (!user.password.includes(':')) {
+      console.log(`    ⚠️  PLAINTEXT password detected: ${user.email} — UPGRADE REQUIRED`)
+    }
+  }
+
+  if (migrated > 0) {
+    console.log(`    ✓ Migrated ${migrated} passwords to scrypt hash`)
+  } else {
+    console.log('    ✓ All passwords properly hashed (or null for seed accounts)')
+  }
+
+  // -------------------------------------------------------------------------
   // Done
   // -------------------------------------------------------------------------
   console.log('')
   console.log('✅ CBUP Seed: Complete!')
   console.log('')
-  console.log('  Credentials:')
+  console.log('  Super Admin Credentials:')
   console.log(`    Email:    ${adminEmail}`)
   console.log(`    Password: ${adminPassword}`)
   console.log('')
   console.log(`  Tenant: ${defaultTenant.name} (${defaultTenant.slug})`)
+  console.log('')
+  console.log('  ⚠️  Change the default password after first login!')
   console.log('')
 }
 

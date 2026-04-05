@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { rateLimit, getClientIp, rateLimitResponse } from '@/lib/rate-limit'
 import { checkAuth, AuthError } from '@/lib/auth-check'
+import { safeEqual } from '@/lib/security-utils'
 
 // ─── Allowed Command Types ───────────────────────────────────────────────────
 const ALLOWED_COMMAND_TYPES = new Set([
@@ -47,7 +48,8 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: 'Agent not found' }, { status: 404 })
     }
 
-    if (agent.authToken !== authToken) {
+    // SECURITY: Timing-safe token comparison
+    if (!safeEqual(authToken, agent.authToken)) {
       return NextResponse.json({ error: 'Invalid auth token' }, { status: 401 })
     }
 

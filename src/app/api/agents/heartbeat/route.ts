@@ -1,13 +1,25 @@
 import { NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import wsHub from '@/lib/websocket'
+import { safeEqual } from '@/lib/security-utils'
+
+// Maximum telemetry payload size: 256KB
+const MAX_TELEMETRY_SIZE = 256 * 1024
 
 // POST /api/agents/heartbeat
 // Receives telemetry data from agent and broadcasts via WebSocket
 export async function POST(request: Request) {
   try {
-    const body = await request.json()
+    // ─── Body Size Validation ─────────────────────────────────────────────
+    const contentLength = request.headers.get('content-length')
+    if (contentLength && parseInt(contentLength, 10) > MAX_TELEMETRY_SIZE) {
+      return NextResponse.json(
+        { success: false, error: 'Request body too large' },
+        { status: 413 }
+      )
+    }
 
+    const body = await request.json()
     const { agentId, authToken, telemetry } = body
 
     if (!agentId || !authToken || !telemetry) {
@@ -17,7 +29,7 @@ export async function POST(request: Request) {
       )
     }
 
-    // Verify agent and token
+    // Verify agent and token (timing-safe comparison)
     const agent = await db.agent.findUnique({
       where: { agentId },
     })
@@ -29,7 +41,8 @@ export async function POST(request: Request) {
       )
     }
 
-    if (agent.authToken !== authToken) {
+    // SECURITY: Timing-safe token comparison
+    if (!safeEqual(authToken, agent.authToken)) {
       return NextResponse.json(
         { success: false, error: 'Invalid auth token' },
         { status: 401 }

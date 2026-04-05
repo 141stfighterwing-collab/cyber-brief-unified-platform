@@ -1,8 +1,14 @@
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
+import { checkAuth } from '@/lib/auth-check'
 
 // GET /api/admin/users — List all users across tenants
-export async function GET(request: Request) {
+// SECURITY: Requires admin authentication
+export async function GET(request: NextRequest) {
+  // ─── Auth Check ────────────────────────────────────────────────────────
+  const authFail = checkAuth(request)
+  if (authFail) return authFail
+
   try {
     const { searchParams } = new URL(request.url)
     const page = parseInt(searchParams.get('page') || '1', 10)
@@ -57,6 +63,7 @@ export async function GET(request: Request) {
       db.user.count({ where }),
     ])
 
+    // SECURITY: Never expose passwords in API responses
     return NextResponse.json({
       success: true,
       data: users,

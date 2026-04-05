@@ -1,9 +1,16 @@
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
+import { checkAuth } from '@/lib/auth-check'
 
 // GET /api/agents/list
 // Returns all registered agents with latest telemetry
-export async function GET() {
+// SECURITY: Requires admin authentication
+export async function GET(request: NextRequest) {
+  // ─── Auth Check ────────────────────────────────────────────────────────
+  const authFail = checkAuth(request)
+  if (authFail) return authFail
+
+  // SECURITY: Never expose authTokens in list responses
   try {
     const agents = await db.agent.findMany({
       orderBy: { lastSeen: 'desc' },
@@ -35,7 +42,11 @@ export async function GET() {
       })
     )
 
-    return NextResponse.json({ agents: enrichedAgents })
+    return NextResponse.json({ agents: enrichedAgents.map((a: Record<string, unknown>) => {
+      // SECURITY: Strip auth tokens from response
+      const { authToken, ...safe } = a
+      return safe
+    }) })
   } catch (error) {
     console.error('List agents error:', error)
     return NextResponse.json(
